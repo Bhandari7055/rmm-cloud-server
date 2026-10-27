@@ -1,136 +1,99 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
+    <meta charset="UTF-8">
     <title>RMM Dashboard</title>
     <style>
-        body { font-family: Arial; background: #f4f6f9; margin: 20px; padding: 20px; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); margin-bottom: 20px; max-width: 900px; }
+        body { font-family: Arial, sans-serif; margin: 30px; background: #f4f6f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
         table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        th, td { border: 1px solid #ddd; padding: 10px; text-align: left; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
         th { background: #007bff; color: white; }
-        .pc-row { cursor: pointer; }
-        .pc-row:hover { background: #e2e8f0; }
-        #detailsSection { display: none; position: relative; }
-        .close-btn { background: #d9534f; color: white; border: none; padding: 5px 12px; font-size: 16px; font-weight: bold; border-radius: 4px; cursor: pointer; }
-        .del-btn { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        .status-online { color: green; font-weight: bold; }
+        .btn-add { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        input[type="text"] { padding: 8px; width: 300px; border: 1px solid #ccc; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <div style="display:flex; justify-content:space-between; max-width:900px;">
-        <h1>RMM Dashboard</h1>
-        <a href="/logout"><button style="background:#d9534f; color:white; border:none; padding:10px;">Logout</button></a>
-    </div>
+    <h1>RMM Cloud Dashboard</h1>
 
-    <!-- Policy Blocking Section -->
+    <!-- Blocking Section -->
     <div class="card">
         <h2>URL / Domain Blocking Policy</h2>
-        <div style="display:flex; gap:10px;">
-            <input type="text" id="newDomain" placeholder="e.g. facebook, instagram, youtube" style="padding:8px; flex:1;">
-            <button onclick="addPolicy()" style="background:#28a745; color:white; border:none; padding:8px 15px; cursor:pointer; font-weight:bold;">Block Domain</button>
-        </div>
-        <h3 style="margin-top:20px;">Blocked Domains List:</h3>
+        <form action="/api/policy/add" method="POST">
+            <input type="text" name="domain" placeholder="e.g. facebook, youtube" required>
+            <button type="submit" class="btn-add">Block Domain</button>
+        </form>
+
+        <h3>Blocked Domains List:</h3>
         <table>
-            <thead>
-                <tr>
-                    <th>Domain Keyword</th>
-                    <th>Action</th>
-                </tr>
-            </thead>
-            <tbody>
-                {% for p in policies %}
-                <tr>
-                    <td><strong style="color:#d9534f;">{{ p }}</strong></td>
-                    <td><button class="del-btn" onclick="delPolicy('{{ p }}')">🔓 Unblock</button></td>
-                </tr>
-                {% else %}
-                <tr><td colspan="2">No domains blocked yet.</td></tr>
-                {% endfor %}
-            </tbody>
+            <tr>
+                <th>Domain Keyword</th>
+                <th>Action</th>
+            </tr>
+            {% for policy in policies %}
+            <tr>
+                <td>{{ policy.domain }}</td>
+                <td>
+                    <form action="/api/policy/delete" method="POST" style="margin:0;">
+                        <input type="hidden" name="domain" value="{{ policy.domain }}">
+                        <button type="submit" class="btn-del">Unblock / Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="2">No domains blocked yet.</td>
+            </tr>
+            {% endfor %}
         </table>
     </div>
 
     <!-- Connected PCs Section -->
     <div class="card">
-        <h2>Connected PCs <small style="font-size:13px; color:#007bff;">(Click PC Name to View URL History)</small></h2>
+        <h2>Connected PCs</h2>
         <table>
-            <tr><th>PC Name</th><th>Status</th><th>Last Active</th></tr>
+            <tr>
+                <th>PC Name</th>
+                <th>Status</th>
+                <th>Last Active</th>
+            </tr>
             {% for agent in agents %}
-            <tr class="pc-row" onclick="selectPC('{{ agent.hostname }}')">
-                <td><strong style="color:#007bff; text-decoration:underline;">[PC] {{ agent.hostname }}</strong></td>
-                <td><span style="background:#28a745; color:white; padding:3px 8px; border-radius:10px; font-size:11px;">ONLINE</span></td>
+            <tr>
+                <td><b>{{ agent.hostname }}</b></td>
+                <td><span class="status-online">ONLINE</span></td>
                 <td>{{ agent.last_seen }}</td>
             </tr>
             {% else %}
-            <tr><td colspan="3">No PCs connected yet.</td></tr>
+            <tr>
+                <td colspan="3">No agents connected yet.</td>
+            </tr>
             {% endfor %}
         </table>
     </div>
 
-    <!-- URL History Section -->
-    <div id="detailsSection">
-        <div class="card" style="border-left:5px solid #007bff;">
-            <div style="display:flex; justify-content:space-between; align-items:center;">
-                <h2>URL History for: <span id="pc2" style="color:#007bff;"></span></h2>
-                <div>
-                    <input type="text" id="search" onkeyup="searchURLs()" placeholder="Search URL..." style="padding:8px; width:200px; margin-right:10px;">
-                    <button class="close-btn" onclick="closeHistory()">✖ Close</button>
-                </div>
-            </div>
-            <table>
-                <thead><tr><th>URL</th><th>Time</th></tr></thead>
-                <tbody>
-                    {% for item in history %}
-                    <tr class="h-row" data-pc="{{ item[0] }}">
-                        <td><a href="{{ item[1] }}" target="_blank" class="url-link">{{ item[1] }}</a></td>
-                        <td>{{ item[2] }}</td>
-                    </tr>
-                    {% else %}
-                    <tr><td colspan="2">No history logged yet.</td></tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-        </div>
+    <!-- History Section -->
+    <div class="card">
+        <h2>Recent URL History (Last 90 Days Auto-Cleaned)</h2>
+        <table>
+            <tr>
+                <th>PC Name</th>
+                <th>URL / Window Title</th>
+                <th>Timestamp</th>
+            </tr>
+            {% for item in history %}
+            <tr>
+                <td>{{ item.hostname }}</td>
+                <td>{{ item.url }}</td>
+                <td>{{ item.timestamp }}</td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="3">No history recorded yet.</td>
+            </tr>
+            {% endfor %}
+        </table>
     </div>
-
-    <script>
-        let activePC = '';
-        function selectPC(name) {
-            activePC = name;
-            document.getElementById('detailsSection').style.display = 'block';
-            document.getElementById('pc2').innerText = name;
-            filterURLs();
-        }
-        function closeHistory() {
-            activePC = '';
-            document.getElementById('detailsSection').style.display = 'none';
-        }
-        function filterURLs() {
-            const q = document.getElementById('search').value.toLowerCase();
-            document.querySelectorAll('.h-row').forEach(r => {
-                const match = r.getAttribute('data-pc') === activePC;
-                const text = r.querySelector('.url-link').innerText.toLowerCase();
-                r.style.display = (match && text.includes(q)) ? '' : 'none';
-            });
-        }
-        function searchURLs() { if (activePC) filterURLs(); }
-        
-        function addPolicy() {
-            const d = document.getElementById('newDomain').value.trim();
-            if (!d) return;
-            fetch('/api/policy/add', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({domain: d})
-            }).then(() => location.reload());
-        }
-        
-        function delPolicy(d) {
-            fetch('/api/policy/delete', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({domain: d})
-            }).then(() => location.reload());
-        }
-    </script>
 </body>
 </html>
