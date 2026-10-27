@@ -81,16 +81,24 @@
                 <th>PC Name</th>
                 <th>URL / Window Title</th>
                 <th>Timestamp</th>
+                <th>Action</th>
             </tr>
             {% for item in history %}
             <tr>
                 <td>{{ item.hostname }}</td>
                 <td>{{ item.url }}</td>
                 <td>{{ item.timestamp }}</td>
+                <td>
+                    <form action="/api/history/delete" method="POST" style="margin:0;">
+                        <input type="hidden" name="url" value="{{ item.url }}">
+                        <input type="hidden" name="timestamp" value="{{ item.timestamp }}">
+                        <button type="submit" class="btn-del">Delete</button>
+                    </form>
+                </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="3">No history recorded yet.</td>
+                <td colspan="4">No history recorded yet.</td>
             </tr>
             {% endfor %}
         </table>
