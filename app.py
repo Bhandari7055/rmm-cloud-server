@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
 import sqlite3, os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 app.secret_key = "rmm_secret_key"
@@ -16,93 +16,116 @@ def init_db():
 
 init_db()
 
+def get_db():
+    conn = sqlite3.connect("rmm.db")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+def cleanup_old_history(conn):
+    try:
+        # 90 days (3 months) se purani history auto delete
+        cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM history WHERE timestamp < ?", (cutoff_date,))
+        conn.commit()
+    except Exception as e:
+        print(f"[DB Cleanup Error] {e}")
+
 @app.route("/")
 def index():
-    if "logged_in" in session:
-        return redirect(url_for("dashboard"))
-    return """<form action="/login" method="POST" style="margin:100px auto; width:300px; text-align:center;">
-    <h2>RMM Admin Login</h2>
-    <input type="password" name="password" placeholder="Enter Admin Password" required style="padding:10px; width:100%; margin-bottom:10px;"><br>
-    <button type="submit" style="padding:10px 20px; background:#007bff; color:white; border:none; cursor:pointer;">Login</button>
-    </form>"""
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    cursor.execute("SELECT * FROM agents")
+    agents = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM history ORDER BY timestamp DESC LIMIT 100")
+    history = cursor.fetchall()
+    
+    cursor.execute("SELECT * FROM policies")
+    policies = cursor.fetchall()
+    
+    conn.close()
+    return render_template("dashboard.html", agents=agents, history=history, policies=policies)
 
-@app.route("/login", methods=["POST"])
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.form.get("password") == "admin123":
-        session["logged_in"] = True
-        return redirect(url_for("dashboard"))
-    return 'Invalid Password! <a href="/">Try again</a>'
+    if request.method == "POST":
+        if request.form.get("password") == "admin123":
+            session["logged_in"] = True
+            return redirect(url_for("index"))
+    return '''
+        <form method="post" style="margin: 50px auto; width: 300px; text-align: center;">
+            <h2>RMM Cloud Login</h2>
+            <input type="password" name="password" placeholder="Password" required style="padding: 10px; width: 100%;"><br><br>
+            <button type="submit" style="padding: 10px 20px;">Login</button>
+        </form>
+    '''
 
 @app.route("/logout")
 def logout():
     session.pop("logged_in", None)
-    return redirect(url_for("index"))
-
-@app.route("/dashboard")
-def dashboard():
-    if "logged_in" not in session:
-        return redirect(url_for("index"))
-    conn = sqlite3.connect("rmm.db")
-    cursor = conn.cursor()
-    cursor.execute("SELECT hostname, last_seen FROM agents")
-    agents = [{"hostname": row[0], "last_seen": row[1]} for row in cursor.fetchall()]
-    cursor.execute("SELECT hostname, url, timestamp FROM history ORDER BY timestamp DESC")
-    history = cursor.fetchall()
-    cursor.execute("SELECT domain FROM policies")
-    policies = [row[0] for row in cursor.fetchall()]
-    conn.close()
-    return render_template("dashboard.html", agents=agents, history=history, policies=policies)
-
-@app.route("/api/policy/add", methods=["POST"])
-def add_policy():
-    data = request.json or {}
-    domain = data.get("domain", "").strip().lower()
-    if domain:
-        conn = sqlite3.connect("rmm.db")
-        cursor = conn.cursor()
-        cursor.execute("INSERT OR IGNORE INTO policies (domain) VALUES (?)", (domain,))
-        conn.commit()
-        conn.close()
-    return jsonify({"status": "ok"})
-
-@app.route("/api/policy/delete", methods=["POST"])
-def delete_policy():
-    data = request.json or {}
-    domain = data.get("domain", "").strip().lower()
-    if domain:
-        conn = sqlite3.connect("rmm.db")
-        cursor = conn.cursor()
-        cursor.execute("DELETE FROM policies WHERE domain = ?", (domain,))
-        conn.commit()
-        conn.close()
-    return jsonify({"status": "ok"})
+    return redirect(url_for("login"))
 
 @app.route("/api/system/ping", methods=["POST"])
 def ping():
     data = request.json or {}
     hostname = data.get("hostname", "Unknown")
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    conn = sqlite3.connect("rmm.db")
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    
+    conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO agents (hostname, last_seen) VALUES (?, ?)", (hostname, now))
+    cursor.execute("INSERT OR REPLACE INTO agents (hostname, last_seen) VALUES (?, ?)", (hostname, now_str))
+    
     cursor.execute("SELECT domain FROM policies")
-    policies = [row[0] for row in cursor.fetchall()]
+    policies = [row["domain"] for row in cursor.fetchall()]
+    
     conn.commit()
     conn.close()
     return jsonify({"status": "ok", "policies": policies})
 
 @app.route("/api/system/history", methods=["POST"])
-def save_history():
+def history_log():
     data = request.json or {}
-    hostname, url = data.get("hostname"), data.get("url")
-    now = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
-    if hostname and url:
-        conn = sqlite3.connect("rmm.db")
+    hostname = data.get("hostname", "Unknown")
+    url = data.get("url", "")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    if url:
+        conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now))
+        cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now_str))
         conn.commit()
+        
+        # 3 months cleanup run karein
+        cleanup_old_history(conn)
         conn.close()
+        
     return jsonify({"status": "ok"})
 
+@app.route("/api/policy/add", methods=["POST"])
+def add_policy():
+    domain = request.form.get("domain", "").strip()
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO policies (domain) VALUES (?)", (domain,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("index"))
+
+@app.route("/api/policy/delete", methods=["POST"])
+def delete_policy():
+    domain = request.form.get("domain", "").strip()
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM policies WHERE domain = ?", (domain,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("index"))
+
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000, debug=True)
+    app.run(host="0.0.0.0", port=5000)
