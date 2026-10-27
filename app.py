@@ -40,14 +40,29 @@ def index():
     cursor.execute("SELECT * FROM agents")
     agents = cursor.fetchall()
     
-    cursor.execute("SELECT * FROM history ORDER BY timestamp DESC LIMIT 100")
-    history = cursor.fetchall()
-    
     cursor.execute("SELECT * FROM policies")
     policies = cursor.fetchall()
     
     conn.close()
-    return render_template("dashboard.html", agents=agents, history=history, policies=policies)
+    return render_template("dashboard.html", agents=agents, policies=policies)
+
+@app.route("/agent/<hostname>")
+def agent_history(hostname):
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    
+    search_query = request.args.get("q", "").strip()
+    conn = get_db()
+    cursor = conn.cursor()
+    
+    if search_query:
+        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? AND url LIKE ? ORDER BY timestamp DESC", (hostname, f"%{search_query}%"))
+    else:
+        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? ORDER BY timestamp DESC", (hostname,))
+        
+    history = cursor.fetchall()
+    conn.close()
+    return render_template("agent_history.html", hostname=hostname, history=history, search_query=search_query)
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
@@ -97,7 +112,6 @@ def history_log():
         cursor = conn.cursor()
         cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now_str))
         conn.commit()
-        
         cleanup_old_history(conn)
         conn.close()
         
@@ -105,16 +119,15 @@ def history_log():
 
 @app.route("/api/history/delete", methods=["POST"])
 def delete_history():
-    url = request.form.get("url")
-    timestamp = request.form.get("timestamp")
-    
+    rowid = request.form.get("rowid")
+    hostname = request.form.get("hostname")
     conn = get_db()
     cursor = conn.cursor()
-    if url and timestamp:
-        cursor.execute("DELETE FROM history WHERE url = ? AND timestamp = ?", (url, timestamp))
+    if rowid:
+        cursor.execute("DELETE FROM history WHERE rowid = ?", (rowid,))
         conn.commit()
     conn.close()
-    return redirect(url_for("index"))
+    return redirect(url_for("agent_history", hostname=hostname))
 
 @app.route("/api/policy/add", methods=["POST"])
 def add_policy():
