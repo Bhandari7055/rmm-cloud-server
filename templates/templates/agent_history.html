@@ -1,0 +1,61 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>URL History - {{ hostname }}</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; background: #f4f6f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background: #007bff; color: white; }
+        .btn-search { background: #007bff; color: white; border: none; padding: 9px 15px; border-radius: 4px; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .btn-back { display: inline-block; background: #6c757d; color: white; text-decoration: none; padding: 8px 12px; border-radius: 4px; margin-bottom: 15px; }
+        input[type="text"] { padding: 8px; width: 350px; border: 1px solid #ccc; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <a href="/" class="btn-back">⬅ Back to Main Dashboard</a>
+
+    <div class="card">
+        <h2>URL History for PC: <span style="color: #007bff;">{{ hostname }}</span></h2>
+        
+        <!-- Search Box -->
+        <form action="/agent/{{ hostname }}" method="GET" style="margin-bottom: 15px;">
+            <input type="text" name="q" placeholder="Search URL or keyword (e.g. youtube, google)..." value="{{ search_query }}">
+            <button type="submit" class="btn-search">Search History</button>
+            {% if search_query %}
+                <a href="/agent/{{ hostname }}" style="margin-left: 10px; color: #dc3545;">Clear Search Filter</a>
+            {% endif %}
+        </form>
+
+        <table>
+            <tr>
+                <th>#</th>
+                <th>URL / Window Title</th>
+                <th>Timestamp</th>
+                <th>Action</th>
+            </tr>
+            {% for item in history %}
+            <tr>
+                <td>{{ loop.index }}</td>
+                <td><b>{{ item.url }}</b></td>
+                <td>{{ item.timestamp }}</td>
+                <td>
+                    <form action="/api/history/delete" method="POST" style="margin:0;">
+                        <input type="hidden" name="rowid" value="{{ item.rowid }}">
+                        <input type="hidden" name="hostname" value="{{ hostname }}">
+                        <button type="submit" class="btn-del">Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="4">No history records found{% if search_query %} for "{{ search_query }}"{% endif %}.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
