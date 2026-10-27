@@ -12,13 +12,14 @@
         .status-online { color: green; font-weight: bold; }
         .btn-add { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
         .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .pc-link { color: #007bff; font-weight: bold; text-decoration: none; }
+        .pc-link:hover { text-decoration: underline; }
         input[type="text"] { padding: 8px; width: 300px; border: 1px solid #ccc; border-radius: 4px; }
     </style>
 </head>
 <body>
     <h1>RMM Cloud Dashboard</h1>
 
-    <!-- Blocking Section -->
     <div class="card">
         <h2>URL / Domain Blocking Policy</h2>
         <form action="/api/policy/add" method="POST">
@@ -50,55 +51,29 @@
         </table>
     </div>
 
-    <!-- Connected PCs Section -->
     <div class="card">
-        <h2>Connected PCs</h2>
+        <h2>Connected PCs (Click PC Name to View URL History)</h2>
         <table>
             <tr>
                 <th>PC Name</th>
                 <th>Status</th>
                 <th>Last Active</th>
+                <th>Action</th>
             </tr>
             {% for agent in agents %}
             <tr>
-                <td><b>{{ agent.hostname }}</b></td>
+                <td>
+                    <a href="/agent/{{ agent.hostname }}" class="pc-link">💻 {{ agent.hostname }}</a>
+                </td>
                 <td><span class="status-online">ONLINE</span></td>
                 <td>{{ agent.last_seen }}</td>
-            </tr>
-            {% else %}
-            <tr>
-                <td colspan="3">No agents connected yet.</td>
-            </tr>
-            {% endfor %}
-        </table>
-    </div>
-
-    <!-- History Section -->
-    <div class="card">
-        <h2>Recent URL History (Last 90 Days Auto-Cleaned)</h2>
-        <table>
-            <tr>
-                <th>PC Name</th>
-                <th>URL / Window Title</th>
-                <th>Timestamp</th>
-                <th>Action</th>
-            </tr>
-            {% for item in history %}
-            <tr>
-                <td>{{ item.hostname }}</td>
-                <td>{{ item.url }}</td>
-                <td>{{ item.timestamp }}</td>
                 <td>
-                    <form action="/api/history/delete" method="POST" style="margin:0;">
-                        <input type="hidden" name="url" value="{{ item.url }}">
-                        <input type="hidden" name="timestamp" value="{{ item.timestamp }}">
-                        <button type="submit" class="btn-del">Delete</button>
-                    </form>
+                    <a href="/agent/{{ agent.hostname }}" class="pc-link">View Full History 🔍</a>
                 </td>
             </tr>
             {% else %}
             <tr>
-                <td colspan="4">No history recorded yet.</td>
+                <td colspan="4">No agents connected yet.</td>
             </tr>
             {% endfor %}
         </table>
