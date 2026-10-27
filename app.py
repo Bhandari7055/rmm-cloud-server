@@ -23,7 +23,6 @@ def get_db():
 
 def cleanup_old_history(conn):
     try:
-        # 90 days (3 months) se purani history auto delete
         cutoff_date = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d %H:%M:%S")
         cursor = conn.cursor()
         cursor.execute("DELETE FROM history WHERE timestamp < ?", (cutoff_date,))
@@ -99,11 +98,23 @@ def history_log():
         cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now_str))
         conn.commit()
         
-        # 3 months cleanup run karein
         cleanup_old_history(conn)
         conn.close()
         
     return jsonify({"status": "ok"})
+
+@app.route("/api/history/delete", methods=["POST"])
+def delete_history():
+    url = request.form.get("url")
+    timestamp = request.form.get("timestamp")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    if url and timestamp:
+        cursor.execute("DELETE FROM history WHERE url = ? AND timestamp = ?", (url, timestamp))
+        conn.commit()
+    conn.close()
+    return redirect(url_for("index"))
 
 @app.route("/api/policy/add", methods=["POST"])
 def add_policy():
