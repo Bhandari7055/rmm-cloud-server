@@ -1,14 +1,18 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
-import sqlite3, os, random, smtplib
-from email.mime.text import MIMEText
+import sqlite3, os, random
+from twilio.rest import Client
 from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
-app.secret_key = "rmm_secret_key"
+app.secret_key = os.environ.get("SECRET_KEY", "rmm_secret_key")
 
-# Gmail Configuration
-GMAIL_USER = "bhandaribharat216@gmail.com"
-GMAIL_APP_PASS = "zkoz kalc iulk uwse"
+# Twilio Configurations from Environment Variables
+TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
+TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
+TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
+
+# Target Mobile Number for OTP
+TARGET_MOBILE = "+917055361662"
 
 otp_store = {}
 
@@ -30,20 +34,16 @@ def get_db():
     conn.row_factory = sqlite3.Row
     return conn
 
-def send_otp_email(to_email, otp):
-    msg = MIMEText(f"Your RMM Portal Password Reset OTP is: {otp}\nValid for 10 minutes.")
-    msg['Subject'] = 'RMM Portal Password Reset OTP'
-    msg['From'] = GMAIL_USER
-    msg['To'] = to_email
-
-    clean_pass = GMAIL_APP_PASS.replace(" ", "").strip()
-
-    # Direct SMTP Port 587
-    server = smtplib.SMTP('smtp.gmail.com', 587)
-    server.starttls()
-    server.login(GMAIL_USER, clean_pass)
-    server.sendmail(GMAIL_USER, [to_email], msg.as_string())
-    server.quit()
+def send_sms_otp(mobile_number, otp):
+    if not all([TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_PHONE_NUMBER]):
+        raise Exception("Twilio credentials missing in Environment Variables!")
+        
+    client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+    client.messages.create(
+        body=f"Your RMM Portal Password Reset OTP is: {otp}. Valid for 10 minutes.",
+        from_=TWILIO_PHONE_NUMBER,
+        to=mobile_number
+    )
 
 def cleanup_old_history(conn):
     try:
@@ -112,7 +112,7 @@ def login():
                 <button type="submit" style="padding: 10px 20px; width: 100%; background: #007bff; color: white; border: none; cursor: pointer;">Login</button>
             </form>
             <br>
-            <a href="/forgot-password" style="color: #007bff; text-decoration: none;">Forgot Password? Reset via OTP</a>
+            <a href="/forgot-password" style="color: #007bff; text-decoration: none;">Forgot Password? Reset via SMS OTP</a>
         </div>
     '''
 
@@ -125,11 +125,11 @@ def forgot_password():
             otp = str(random.randint(100000, 999999))
             otp_store["admin_otp"] = otp
             try:
-                send_otp_email(GMAIL_USER, otp)
-                msg = f"OTP Sent Successfully to {GMAIL_USER}!"
+                send_sms_otp(TARGET_MOBILE, otp)
+                msg = f"OTP Sent Successfully via SMS to {TARGET_MOBILE}!"
                 return render_template("reset_password.html", step=2, msg=msg)
             except Exception as e:
-                msg = f"OTP Mail Error: {e}"
+                msg = f"SMS Error: {e}"
                 return render_template("reset_password.html", step=1, msg=msg)
 
         elif action == "verify_reset":
