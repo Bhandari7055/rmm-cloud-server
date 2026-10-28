@@ -6,7 +6,7 @@ from datetime import datetime, timezone, timedelta
 app = Flask(__name__)
 app.secret_key = "rmm_secret_key"
 
-# Gmail SMTP Configuration
+# Gmail Configuration
 GMAIL_USER = "bhandaribharat216@gmail.com"
 GMAIL_APP_PASS = "zkoz kalc iulk uwse"
 
@@ -38,8 +38,8 @@ def send_otp_email(to_email, otp):
 
     clean_pass = GMAIL_APP_PASS.replace(" ", "").strip()
 
-    # Port 587 STARTTLS (Standard Cloud SMTP)
-    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+    # Direct SMTP Port 587
+    server = smtplib.SMTP('smtp.gmail.com', 587)
     server.starttls()
     server.login(GMAIL_USER, clean_pass)
     server.sendmail(GMAIL_USER, [to_email], msg.as_string())
@@ -77,7 +77,7 @@ def agent_history(hostname):
     cursor = conn.cursor()
     
     if search_query:
-        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? AND URL LIKE ? ORDER BY timestamp DESC", (hostname, f"%{search_query}%"))
+        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? AND url LIKE ? ORDER BY timestamp DESC", (hostname, f"%{search_query}%"))
     else:
         cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? ORDER BY timestamp DESC", (hostname,))
         
