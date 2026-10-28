@@ -38,8 +38,9 @@ def send_otp_email(to_email, otp):
 
     clean_pass = GMAIL_APP_PASS.replace(" ", "").strip()
 
-    # Port 465 SSL Direct Connection
-    server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=15)
+    # Port 587 STARTTLS (Standard Cloud SMTP)
+    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
+    server.starttls()
     server.login(GMAIL_USER, clean_pass)
     server.sendmail(GMAIL_USER, [to_email], msg.as_string())
     server.quit()
@@ -76,7 +77,7 @@ def agent_history(hostname):
     cursor = conn.cursor()
     
     if search_query:
-        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? AND url LIKE ? ORDER BY timestamp DESC", (hostname, f"%{search_query}%"))
+        cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? AND URL LIKE ? ORDER BY timestamp DESC", (hostname, f"%{search_query}%"))
     else:
         cursor.execute("SELECT rowid, * FROM history WHERE hostname = ? ORDER BY timestamp DESC", (hostname,))
         
@@ -209,4 +210,19 @@ def add_policy():
         cursor.execute("INSERT OR IGNORE INTO policies (domain) VALUES (?)", (domain,))
         conn.commit()
         conn.close()
-    return redirect(
+    return redirect(url_for("index"))
+
+@app.route("/api/policy/delete", methods=["POST"])
+def delete_policy():
+    domain = request.form.get("domain", "").strip()
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM policies WHERE domain = ?", (domain,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
