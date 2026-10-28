@@ -36,10 +36,12 @@ def send_otp_email(to_email, otp):
     msg['From'] = GMAIL_USER
     msg['To'] = to_email
 
-    # Fast & reliable Port 587 with STARTTLS (Cloud Servers Fix)
-    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=15)
-    server.starttls()
+    # Clean space from app password
     clean_pass = GMAIL_APP_PASS.replace(" ", "")
+
+    # Port 587 TLS Connection with 20s timeout
+    server = smtplib.SMTP('smtp.gmail.com', 587, timeout=20)
+    server.starttls()
     server.login(GMAIL_USER, clean_pass)
     server.sendmail(GMAIL_USER, [to_email], msg.as_string())
     server.quit()
@@ -128,10 +130,101 @@ def forgot_password():
                 msg = f"OTP Sent Successfully to {GMAIL_USER}!"
                 return render_template("reset_password.html", step=2, msg=msg)
             except Exception as e:
-                msg = f"Failed to send OTP: {e}"
+                # Screen par clear error dikhayega crash hone ke bajaye
+                msg = f"OTP Mail Error: {e}"
+                return render_template("reset_password.html", step=1, msg=msg)
+
         elif action == "verify_reset":
             entered_otp = request.form.get("otp")
             new_pass = request.form.get("new_password")
             if entered_otp == otp_store.get("admin_otp"):
                 conn = get_db()
-                cursor
+                cursor = conn.cursor()
+                cursor.execute("UPDATE config SET value = ? WHERE key = 'admin_password'", (new_pass,))
+                conn.commit()
+                conn.close()
+                otp_store.pop("admin_otp", None)
+                return '''<script>alert("Password changed successfully! Please login."); window.location.href="/login";</script>'''
+            else:
+                msg = "Invalid OTP! Try again."
+                return render_template("reset_password.html", step=2, msg=msg)
+
+    return render_template("reset_password.html", step=1, msg=msg)
+
+@app.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("login"))
+
+@app.route("/api/system/ping", methods=["POST"])
+def ping():
+    data = request.json or {}
+    hostname = data.get("hostname", "Unknown")
+    shot_status = data.get("screenshot_status", "Active")
+    now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("INSERT OR REPLACE INTO agents (hostname, last_seen, screenshot_status) VALUES (?, ?, ?)", (hostname, now_str, shot_status))
+    
+    cursor.execute("SELECT domain FROM policies")
+    policies = [row["domain"] for row in cursor.fetchall()]
+    
+    conn.commit()
+    conn.close()
+    return jsonify({"status": "ok", "policies": policies})
+
+@app.route("/api/system/history", methods=["POST"])
+def history_log():
+    data = request.json or {}
+    hostname = data.get("hostname", "Unknown")
+    url = data.get("url", "")
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    if url:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now_str))
+        conn.commit()
+        cleanup_old_history(conn)
+        conn.close()
+        
+    return jsonify({"status": "ok"})
+
+@app.route("/api/history/delete", methods=["POST"])
+def delete_history():
+    rowid = request.form.get("rowid")
+    hostname = request.form.get("hostname")
+    conn = get_db()
+    cursor = conn.cursor()
+    if rowid:
+        cursor.execute("DELETE FROM history WHERE rowid = ?", (rowid,))
+        conn.commit()
+    conn.close()
+    return redirect(url_for("agent_history", hostname=hostname))
+
+@app.route("/api/policy/add", methods=["POST"])
+def add_policy():
+    domain = request.form.get("domain", "").strip()
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("INSERT OR IGNORE INTO policies (domain) VALUES (?)", (domain,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("index"))
+
+@app.route("/api/policy/delete", methods=["POST"])
+def delete_policy():
+    domain = request.form.get("domain", "").strip()
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM policies WHERE domain = ?", (domain,))
+        conn.commit()
+        conn.close()
+    return redirect(url_for("index"))
+
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host="0.0.0.0", port=port)
