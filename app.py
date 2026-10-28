@@ -1,19 +1,60 @@
 import os
 import sqlite3
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
+from flask import Flask, request, jsonify, render_template, render_template_string, redirect, url_for, session
 from twilio.rest import Client
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "rmm_secret_key_12345")
 
-# Twilio Environment Configuration (Render Variables se padhega)
+# Twilio Environment Configuration
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
 ADMIN_PHONE_NUMBER = "+917055361662"
 
 DB_FILE = "rmm.db"
+
+# Embedded Login HTML Template (Folder dependency removed)
+LOGIN_HTML = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login - RMM Portal</title>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #f4f6f9; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
+        .card { background: white; padding: 30px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); width: 320px; text-align: center; }
+        h2 { margin-bottom: 20px; color: #333; }
+        input[type="text"], input[type="password"] { width: 100%; padding: 10px; margin: 8px 0; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background-color: #007bff; color: white; border: none; border-radius: 4px; font-weight: bold; cursor: pointer; margin-top: 10px; }
+        button:hover { background-color: #0056b3; }
+        .alert { color: #d9534f; margin-bottom: 15px; font-size: 14px; }
+        a { color: #007bff; text-decoration: none; font-size: 13px; display: inline-block; margin-top: 15px; }
+    </style>
+</head>
+<body>
+
+<div class="card">
+    <h2>RMM Portal Login</h2>
+
+    {% if msg %}
+        <div class="alert">{{ msg }}</div>
+    {% endif %}
+
+    <form method="POST" action="/login">
+        <input type="text" name="username" placeholder="Username" required autocomplete="off">
+        <input type="password" name="password" placeholder="Password" required>
+        <button type="submit">Login</button>
+    </form>
+
+    <a href="/forgot-password">Forgot Password?</a>
+</div>
+
+</body>
+</html>
+"""
 
 def get_db():
     conn = sqlite3.connect(DB_FILE)
@@ -112,7 +153,7 @@ def login():
         else:
             msg = "Invalid Username or Password!"
             
-    return render_template('login.html', msg=msg)
+    return render_template_string(LOGIN_HTML, msg=msg)
 
 @app.route('/logout')
 def logout():
