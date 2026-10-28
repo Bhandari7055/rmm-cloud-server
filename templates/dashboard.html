@@ -10,16 +10,27 @@
         th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
         th { background: #007bff; color: white; }
         .status-online { color: green; font-weight: bold; }
+        .status-sending { color: green; font-weight: bold; background: #e6ffed; padding: 3px 8px; border-radius: 4px; }
+        .status-idle { color: #d97706; font-weight: bold; background: #fffbeb; padding: 3px 8px; border-radius: 4px; }
         .btn-add { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
         .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
         .pc-link { color: #007bff; font-weight: bold; text-decoration: none; }
         .pc-link:hover { text-decoration: underline; }
         input[type="text"] { padding: 8px; width: 300px; border: 1px solid #ccc; border-radius: 4px; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; }
+        .btn-logout { background: #6c757d; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; }
     </style>
 </head>
 <body>
-    <h1>RMM Cloud Dashboard</h1>
+    <div class="header-bar">
+        <h1>RMM Cloud Dashboard</h1>
+        <div>
+            <a href="/forgot-password" style="margin-right: 15px; color: #007bff; text-decoration: none;">🔑 Change Password</a>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </div>
 
+    <!-- Blocking Section -->
     <div class="card">
         <h2>URL / Domain Blocking Policy</h2>
         <form action="/api/policy/add" method="POST">
@@ -51,12 +62,14 @@
         </table>
     </div>
 
+    <!-- Connected PCs Section -->
     <div class="card">
-        <h2>Connected PCs (Click PC Name to View URL History)</h2>
+        <h2>Connected PCs Monitoring</h2>
         <table>
             <tr>
                 <th>PC Name</th>
-                <th>Status</th>
+                <th>Agent Status</th>
+                <th>Screenshot Sending Status</th>
                 <th>Last Active</th>
                 <th>Action</th>
             </tr>
@@ -66,6 +79,13 @@
                     <a href="/agent/{{ agent.hostname }}" class="pc-link">💻 {{ agent.hostname }}</a>
                 </td>
                 <td><span class="status-online">ONLINE</span></td>
+                <td>
+                    {% if agent.screenshot_status == 'Sending Screenshots' %}
+                        <span class="status-sending">📸 Capturing & Sending</span>
+                    {% else %}
+                        <span class="status-idle">⏸️ Paused (User Idle)</span>
+                    {% endif %}
+                </td>
                 <td>{{ agent.last_seen }}</td>
                 <td>
                     <a href="/agent/{{ agent.hostname }}" class="pc-link">View Full History 🔍</a>
@@ -73,7 +93,7 @@
             </tr>
             {% else %}
             <tr>
-                <td colspan="4">No agents connected yet.</td>
+                <td colspan="5">No agents connected yet.</td>
             </tr>
             {% endfor %}
         </table>
