@@ -1,16 +1,27 @@
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
-import sqlite3, os
+import sqlite3, os, random, smtplib
+from email.mime.text import MIMEText
 from datetime import datetime, timezone, timedelta
 
 app = Flask(__name__)
 app.secret_key = "rmm_secret_key"
 
+# Gmail SMTP Configuration
+GMAIL_USER = "your_gmail@gmail.com"        # Apna Gmail ID yahan daalein
+GMAIL_APP_PASS = "your_app_password"        # Apna 16-digit App Password yahan daalein
+
+otp_store = {}
+
 def init_db():
     conn = sqlite3.connect("rmm.db")
     cursor = conn.cursor()
-    cursor.execute("CREATE TABLE IF NOT EXISTS agents (hostname TEXT PRIMARY KEY, last_seen TEXT)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS agents (hostname TEXT PRIMARY KEY, last_seen TEXT, screenshot_status TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS history (hostname TEXT, url TEXT, timestamp TEXT)")
     cursor.execute("CREATE TABLE IF NOT EXISTS policies (domain TEXT PRIMARY KEY)")
+    cursor.execute("CREATE TABLE IF NOT EXISTS config (key TEXT PRIMARY KEY, value TEXT)")
+    
+    # Default Admin Password
+    cursor.execute("INSERT OR IGNORE INTO config (key, value) VALUES ('admin_password', 'admin123')")
     conn.commit()
     conn.close()
 
@@ -20,6 +31,17 @@ def get_db():
     conn = sqlite3.connect("rmm.db")
     conn.row_factory = sqlite3.Row
     return conn
+
+def send_otp_email(to_email, otp):
+    msg = MIMEText(f"Your RMM Portal Password Reset OTP is: {otp}\nValid for 10 minutes.")
+    msg['Subject'] = 'RMM Portal Password Reset OTP'
+    msg['From'] = GMAIL_USER
+    msg['To'] = to_email
+
+    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+    server.login(GMAIL_USER, GMAIL_APP_PASS)
+    server.sendmail(GMAIL_USER, [to_email], msg.as_string())
+    server.quit()
 
 def cleanup_old_history(conn):
     try:
@@ -36,13 +58,10 @@ def index():
         return redirect(url_for("login"))
     conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute("SELECT * FROM agents")
     agents = cursor.fetchall()
-    
     cursor.execute("SELECT * FROM policies")
     policies = cursor.fetchall()
-    
     conn.close()
     return render_template("dashboard.html", agents=agents, policies=policies)
 
@@ -66,17 +85,65 @@ def agent_history(hostname):
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+    message = ""
     if request.method == "POST":
-        if request.form.get("password") == "admin123":
+        password = request.form.get("password")
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("SELECT value FROM config WHERE key = 'admin_password'")
+        row = cursor.fetchone()
+        conn.close()
+        
+        current_pass = row['value'] if row else "admin123"
+        if password == current_pass:
             session["logged_in"] = True
             return redirect(url_for("index"))
-    return '''
-        <form method="post" style="margin: 50px auto; width: 300px; text-align: center;">
+        else:
+            message = "Invalid Password!"
+            
+    return f'''
+        <div style="margin: 50px auto; width: 320px; text-align: center; font-family: Arial;">
             <h2>RMM Cloud Login</h2>
-            <input type="password" name="password" placeholder="Password" required style="padding: 10px; width: 100%;"><br><br>
-            <button type="submit" style="padding: 10px 20px;">Login</button>
-        </form>
+            <p style="color:red;">{message}</p>
+            <form method="post">
+                <input type="password" name="password" placeholder="Password" required style="padding: 10px; width: 100%; box-sizing: border-box;"><br><br>
+                <button type="submit" style="padding: 10px 20px; width: 100%; background: #007bff; color: white; border: none; cursor: pointer;">Login</button>
+            </form>
+            <br>
+            <a href="/forgot-password" style="color: #007bff; text-decoration: none;">Forgot Password? Reset via OTP</a>
+        </div>
     '''
+
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    msg = ""
+    if request.method == "POST":
+        action = request.form.get("action")
+        if action == "send_otp":
+            otp = str(random.randint(100000, 999999))
+            otp_store["admin_otp"] = otp
+            try:
+                send_otp_email(GMAIL_USER, otp)
+                msg = f"OTP Sent Successfully to {GMAIL_USER}!"
+                return render_template("reset_password.html", step=2, msg=msg)
+            except Exception as e:
+                msg = f"Failed to send OTP: {e}"
+        elif action == "verify_reset":
+            entered_otp = request.form.get("otp")
+            new_pass = request.form.get("new_password")
+            if entered_otp == otp_store.get("admin_otp"):
+                conn = get_db()
+                cursor = conn.cursor()
+                cursor.execute("UPDATE config SET value = ? WHERE key = 'admin_password'", (new_pass,))
+                conn.commit()
+                conn.close()
+                otp_store.pop("admin_otp", None)
+                return '''<script>alert("Password changed successfully! Please login."); window.location.href="/login";</script>'''
+            else:
+                msg = "Invalid OTP! Try again."
+                return render_template("reset_password.html", step=2, msg=msg)
+
+    return render_template("reset_password.html", step=1, msg=msg)
 
 @app.route("/logout")
 def logout():
@@ -87,11 +154,12 @@ def logout():
 def ping():
     data = request.json or {}
     hostname = data.get("hostname", "Unknown")
+    shot_status = data.get("screenshot_status", "Active")
     now_str = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
     
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO agents (hostname, last_seen) VALUES (?, ?)", (hostname, now_str))
+    cursor.execute("INSERT OR REPLACE INTO agents (hostname, last_seen, screenshot_status) VALUES (?, ?, ?)", (hostname, now_str, shot_status))
     
     cursor.execute("SELECT domain FROM policies")
     policies = [row["domain"] for row in cursor.fetchall()]
