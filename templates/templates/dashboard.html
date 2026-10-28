@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>RMM Dashboard</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 30px; background: #f4f6f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; margin-bottom: 20px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+        table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+        th, td { padding: 12px; border: 1px solid #ddd; text-align: left; }
+        th { background: #007bff; color: white; }
+        .status-online { color: green; font-weight: bold; }
+        .status-sending { color: green; font-weight: bold; background: #e6ffed; padding: 3px 8px; border-radius: 4px; }
+        .status-idle { color: #d97706; font-weight: bold; background: #fffbeb; padding: 3px 8px; border-radius: 4px; }
+        .btn-add { background: #28a745; color: white; border: none; padding: 10px 15px; border-radius: 4px; cursor: pointer; }
+        .btn-del { background: #dc3545; color: white; border: none; padding: 5px 10px; border-radius: 4px; cursor: pointer; }
+        .pc-link { color: #007bff; font-weight: bold; text-decoration: none; }
+        .pc-link:hover { text-decoration: underline; }
+        input[type="text"] { padding: 8px; width: 300px; border: 1px solid #ccc; border-radius: 4px; }
+        .header-bar { display: flex; justify-content: space-between; align-items: center; }
+        .btn-logout { background: #6c757d; color: white; padding: 8px 12px; text-decoration: none; border-radius: 4px; }
+    </style>
+</head>
+<body>
+    <div class="header-bar">
+        <h1>RMM Cloud Dashboard</h1>
+        <div>
+            <a href="/forgot-password" style="margin-right: 15px; color: #007bff; text-decoration: none;">🔑 Change Password</a>
+            <a href="/logout" class="btn-logout">Logout</a>
+        </div>
+    </div>
+
+    <div class="card">
+        <h2>URL / Domain Blocking Policy</h2>
+        <form action="/api/policy/add" method="POST">
+            <input type="text" name="domain" placeholder="e.g. facebook, youtube" required>
+            <button type="submit" class="btn-add">Block Domain</button>
+        </form>
+
+        <h3>Blocked Domains List:</h3>
+        <table>
+            <tr>
+                <th>Domain Keyword</th>
+                <th>Action</th>
+            </tr>
+            {% for policy in policies %}
+            <tr>
+                <td>{{ policy.domain }}</td>
+                <td>
+                    <form action="/api/policy/delete" method="POST" style="margin:0;">
+                        <input type="hidden" name="domain" value="{{ policy.domain }}">
+                        <button type="submit" class="btn-del">Unblock / Delete</button>
+                    </form>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="2">No domains blocked yet.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>Connected PCs Monitoring</h2>
+        <table>
+            <tr>
+                <th>PC Name</th>
+                <th>Agent Status</th>
+                <th>Screenshot Sending Status</th>
+                <th>Last Active</th>
+                <th>Action</th>
+            </tr>
+            {% for agent in agents %}
+            <tr>
+                <td>
+                    <a href="/agent/{{ agent.hostname }}" class="pc-link">💻 {{ agent.hostname }}</a>
+                </td>
+                <td><span class="status-online">ONLINE</span></td>
+                <td>
+                    {% if agent.screenshot_status == 'Sending Screenshots' %}
+                        <span class="status-sending">📸 Capturing & Sending</span>
+                    {% else %}
+                        <span class="status-idle">⏸️ Paused (User Idle)</span>
+                    {% endif %}
+                </td>
+                <td>{{ agent.last_seen }}</td>
+                <td>
+                    <a href="/agent/{{ agent.hostname }}" class="pc-link">View Full History 🔍</a>
+                </td>
+            </tr>
+            {% else %}
+            <tr>
+                <td colspan="5">No agents connected yet.</td>
+            </tr>
+            {% endfor %}
+        </table>
+    </div>
+</body>
+</html>
