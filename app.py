@@ -6,9 +6,9 @@ from datetime import datetime, timezone, timedelta
 app = Flask(__name__)
 app.secret_key = "rmm_secret_key"
 
-# Gmail SMTP Configuration
-GMAIL_USER = "your_gmail@gmail.com"        # Apna Gmail ID yahan daalein
-GMAIL_APP_PASS = "your_app_password"        # Apna 16-digit App Password yahan daalein
+# Gmail SMTP Configuration (Updated with correct App Password)
+GMAIL_USER = "bhandaribharat216@gmail.com"
+GMAIL_APP_PASS = "zkoz kalc iulk uwse"
 
 otp_store = {}
 
@@ -39,7 +39,7 @@ def send_otp_email(to_email, otp):
     msg['To'] = to_email
 
     server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-    server.login(GMAIL_USER, GMAIL_APP_PASS)
+    server.login(GMAIL_USER, GMAIL_APP_PASS.replace(" ", ""))
     server.sendmail(GMAIL_USER, [to_email], msg.as_string())
     server.quit()
 
