@@ -200,7 +200,7 @@ def forgot_password():
                 step = 2
     return render_template('reset_password.html', msg=msg, step=step)
 
-# 3. MANUAL HISTORY DELETE ROUTE (FIXES 404 ERROR)
+# 3. MANUAL HISTORY DELETE ROUTE
 @app.route('/api/history/delete', methods=['POST'])
 @app.route('/delete-history/<int:record_id>/<hostname>', methods=['POST'])
 def delete_history_record(record_id=None, hostname=None):
@@ -257,6 +257,7 @@ def system_ping():
     screenshot_status = data.get('screenshot_status', 'Active')
     if not hostname:
         return jsonify({"status": "error", "message": "Hostname required"}), 400
+        
     now = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     conn = get_db()
     cursor = conn.cursor()
