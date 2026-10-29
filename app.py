@@ -7,7 +7,7 @@ from twilio.rest import Client
 app = Flask(__name__)
 app.secret_key = os.environ.get("SECRET_KEY", "rmm_secret_key_12345")
 
-# Twilio Environment Configuration
+# Twilio SMS Configuration
 TWILIO_ACCOUNT_SID = os.environ.get("TWILIO_ACCOUNT_SID")
 TWILIO_AUTH_TOKEN = os.environ.get("TWILIO_AUTH_TOKEN")
 TWILIO_PHONE_NUMBER = os.environ.get("TWILIO_PHONE_NUMBER")
@@ -15,7 +15,7 @@ ADMIN_PHONE_NUMBER = "+917055361662"
 
 DB_FILE = "rmm.db"
 
-# Embedded Login HTML Template (Folder dependency removed)
+# Embedded Login Screen
 LOGIN_HTML = """
 <!DOCTYPE html>
 <html lang="en">
@@ -64,7 +64,6 @@ def get_db():
 def init_db():
     conn = get_db()
     cursor = conn.cursor()
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS admin (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -73,7 +72,6 @@ def init_db():
             otp TEXT
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS agents (
             hostname TEXT PRIMARY KEY,
@@ -81,7 +79,6 @@ def init_db():
             last_seen TIMESTAMP
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS history (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -90,21 +87,19 @@ def init_db():
             timestamp TIMESTAMP
         )
     ''')
-    
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS blocked_domains (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             domain TEXT UNIQUE
         )
     ''')
-    
     cursor.execute("SELECT * FROM admin WHERE username = 'admin'")
     if not cursor.fetchone():
         cursor.execute("INSERT INTO admin (username, password) VALUES ('admin', 'admin123')")
-        
     conn.commit()
     conn.close()
 
+# 1. 90-DAY (3 MAHINE) AUTOMATIC HISTORY CLEANUP ENGINE
 def auto_cleanup_90_days_history():
     try:
         conn = get_db()
@@ -160,24 +155,21 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+# 2. TWILIO SMS OTP PASSWORD RESET
 @app.route('/forgot-password', methods=['GET', 'POST'])
 def forgot_password():
     msg = ""
     step = 1
-    
     if request.method == 'POST':
         action = request.form.get('action')
-        
         if action == 'send_otp':
             import random
             otp = str(random.randint(100000, 999999))
-            
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("UPDATE admin SET otp=? WHERE username='admin'", (otp,))
             conn.commit()
             conn.close()
-            
             try:
                 client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
                 client.messages.create(
@@ -190,16 +182,13 @@ def forgot_password():
             except Exception as e:
                 msg = f"Failed to send SMS OTP: {str(e)}"
                 step = 1
-                
         elif action == 'verify_reset':
             user_otp = request.form.get('otp')
             new_password = request.form.get('new_password')
-            
             conn = get_db()
             cursor = conn.cursor()
             cursor.execute("SELECT * FROM admin WHERE username='admin' AND otp=?", (user_otp,))
             user = cursor.fetchone()
-            
             if user:
                 cursor.execute("UPDATE admin SET password=?, otp=NULL WHERE username='admin'", (new_password,))
                 conn.commit()
@@ -209,19 +198,66 @@ def forgot_password():
                 conn.close()
                 msg = "Invalid OTP! Please try again."
                 step = 2
-                
     return render_template('reset_password.html', msg=msg, step=step)
 
+# 3. MANUAL HISTORY DELETE ROUTE (FIXES 404 ERROR)
+@app.route('/api/history/delete', methods=['POST'])
+@app.route('/delete-history/<int:record_id>/<hostname>', methods=['POST'])
+def delete_history_record(record_id=None, hostname=None):
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+        
+    rec_id = record_id or request.form.get('id')
+    host = hostname or request.form.get('hostname')
+    
+    if rec_id:
+        conn = get_db()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM history WHERE id=?", (rec_id,))
+        conn.commit()
+        conn.close()
+        
+    if host:
+        return redirect(url_for('view_agent_history', hostname=host))
+    return redirect(url_for('dashboard'))
+
+# 4. DOMAIN BLOCKING & UNBLOCKING
+@app.route('/block-domain', methods=['POST'])
+def block_domain():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    domain = request.form.get('domain')
+    if domain:
+        conn = get_db()
+        cursor = conn.cursor()
+        try:
+            cursor.execute("INSERT INTO blocked_domains (domain) VALUES (?)", (domain.strip().lower(),))
+            conn.commit()
+        except sqlite3.IntegrityError:
+            pass
+        conn.close()
+    return redirect(url_for('dashboard'))
+
+@app.route('/unblock-domain/<int:domain_id>', methods=['POST'])
+def unblock_domain(domain_id):
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    conn = get_db()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM blocked_domains WHERE id=?", (domain_id,))
+    conn.commit()
+    conn.close()
+    return redirect(url_for('dashboard'))
+
+# 5. AGENT API & HISTORY VIEW WITH SEARCH SUPPORT
 @app.route('/api/system/ping', methods=['POST'])
 def system_ping():
     data = request.json or {}
     hostname = data.get('hostname')
     screenshot_status = data.get('screenshot_status', 'Active')
-    
     if not hostname:
         return jsonify({"status": "error", "message": "Hostname required"}), 400
-        
-    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    now = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     conn = get_db()
     cursor = conn.cursor()
     cursor.execute('''
@@ -233,7 +269,6 @@ def system_ping():
     ''', (hostname, screenshot_status, now))
     conn.commit()
     conn.close()
-    
     return jsonify({"status": "success"})
 
 @app.route('/api/system/history', methods=['POST'])
@@ -241,17 +276,15 @@ def log_history():
     data = request.json or {}
     hostname = data.get('hostname')
     url = data.get('url')
+    timestamp = data.get('timestamp') or datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     
     if hostname and url:
-        now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         conn = get_db()
         cursor = conn.cursor()
-        cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, now))
+        cursor.execute("INSERT INTO history (hostname, url, timestamp) VALUES (?, ?, ?)", (hostname, url, timestamp))
         conn.commit()
         conn.close()
-        
         auto_cleanup_90_days_history()
-        
     return jsonify({"status": "success"})
 
 @app.route('/agent/<hostname>')
@@ -259,32 +292,20 @@ def view_agent_history(hostname):
     if not session.get('logged_in'):
         return redirect(url_for('login'))
         
+    search_query = request.args.get('q', '').strip()
     auto_cleanup_90_days_history()
+    
     conn = get_db()
     cursor = conn.cursor()
-    cursor.execute("SELECT * FROM history WHERE hostname=? ORDER BY timestamp DESC", (hostname,))
+    if search_query:
+        cursor.execute("SELECT * FROM history WHERE hostname=? AND url LIKE ? ORDER BY id DESC", (hostname, f"%{search_query}%"))
+    else:
+        cursor.execute("SELECT * FROM history WHERE hostname=? ORDER BY id DESC", (hostname,))
+        
     history_records = cursor.fetchall()
     conn.close()
     
-    return render_template('agent_history.html', hostname=hostname, history=history_records)
-
-@app.route('/block-domain', methods=['POST'])
-def block_domain():
-    if not session.get('logged_in'):
-        return redirect(url_for('login'))
-        
-    domain = request.form.get('domain')
-    if domain:
-        conn = get_db()
-        cursor = conn.cursor()
-        try:
-            cursor.execute("INSERT INTO blocked_domains (domain) VALUES (?)", (domain.strip().lower(),))
-            conn.commit()
-        except sqlite3.IntegrityError:
-            pass
-        conn.close()
-        
-    return redirect(url_for('dashboard'))
+    return render_template('agent_history.html', hostname=hostname, history=history_records, search_query=search_query)
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
