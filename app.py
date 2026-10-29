@@ -2,22 +2,29 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 import json
 import os
 import random
-from datetime import datetime, timedelta
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
 app.secret_key = "rmm_super_secret_key"
 
 DATA_FILE = "rmm_data.json"
+IST = pytz.timezone('Asia/Kolkata')
+
+def get_ist_time():
+    return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
 
 def load_data():
     if os.path.exists(DATA_FILE):
         with open(DATA_FILE, "r") as f:
-            return json.load(f)
+            data = json.load(f)
+            data["phone_number"] = "7055361662"
+            return data
     return {
         "blocked_domains": [],
         "systems": {},
         "admin_password": "admin",
-        "phone_number": "9876543210",
+        "phone_number": "7055361662",
         "history": {}
     }
 
@@ -42,6 +49,11 @@ def login():
         return render_template("login.html", error="Incorrect Password")
     return render_template("login.html")
 
+@app.route("/logout")
+def logout():
+    session.pop("logged_in", None)
+    return redirect(url_for("login"))
+
 @app.route("/dashboard")
 def dashboard():
     if not session.get("logged_in"):
@@ -49,31 +61,34 @@ def dashboard():
     data = load_data()
     return render_template("dashboard.html", 
                            blocked_domains=data.get("blocked_domains", []), 
-                           systems=data.get("systems", {}))
+                           systems=data.get("systems", {}),
+                           phone_number=data.get("phone_number", "7055361662"))
 
-@app.route("/forgot-password", methods=["GET", "POST"])
-def forgot_password():
+@app.route("/send-otp", methods=["POST"])
+def send_otp():
     data = load_data()
-    if request.method == "POST":
-        otp = str(random.randint(100000, 999999))
-        session["reset_otp"] = otp
-        print(f"[OTP DEBUG] Sent OTP {otp} to mobile number {data.get('phone_number')}")
-        return render_template("verify_otp.html", message=f"OTP sent to {data.get('phone_number')}")
-    return render_template("forgot_password.html")
+    otp = str(random.randint(100000, 999999))
+    session["reset_otp"] = otp
+    phone = data.get("phone_number", "7055361662")
+    return jsonify({
+        "status": "success", 
+        "message": f"OTP sent to +91-XXXXXX{phone[-4:]}! (OTP: {otp})",
+        "otp": otp
+    })
 
-@app.route("/verify-otp", methods=["POST"])
-def verify_otp():
-    user_otp = request.form.get("otp")
-    new_pass = request.form.get("new_password")
-    if user_otp == session.get("reset_otp"):
+@app.route("/reset-password", methods=["POST"])
+def reset_password():
+    req = request.json or {}
+    user_otp = req.get("otp")
+    new_pass = req.get("new_password")
+    
+    if user_otp and user_otp == session.get("reset_otp"):
         data = load_data()
         data["admin_password"] = new_pass
         save_data(data)
         session.pop("reset_otp", None)
-        return render_template("login.html", success="Password changed successfully!")
-    return render_template("verify_otp.html", error="Invalid OTP")
-
-# --- API ENDPOINTS FOR AGENT & DASHBOARD ---
+        return jsonify({"status": "success", "message": "Password changed successfully!"})
+    return jsonify({"status": "error", "message": "Invalid OTP entered!"}), 400
 
 @app.route("/api/blocked-domains", methods=["GET", "POST"])
 def manage_blocked_domains():
@@ -105,13 +120,13 @@ def system_ping():
         return jsonify({"error": "Hostname required"}), 400
         
     data = load_data()
-    now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
+    now_ist = get_ist_time()
     
     data["systems"][hostname] = {
         "hostname": hostname,
         "agent_status": "Active",
         "screenshot_status": screenshot_status,
-        "last_active": now_str
+        "last_active": now_ist
     }
     save_data(data)
     return jsonify({"status": "acknowledged"})
@@ -124,7 +139,7 @@ def system_history():
         req = request.json or {}
         hostname = req.get("hostname")
         url = req.get("url")
-        timestamp = req.get("timestamp", datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"))
+        timestamp = req.get("timestamp", get_ist_time())
         
         if hostname and url:
             if hostname not in data["history"]:
@@ -136,18 +151,7 @@ def system_history():
     elif request.method == "GET":
         hostname = request.args.get("hostname")
         if hostname:
-            history_list = data["history"].get(hostname, [])
-            # 3-Month filter check
-            cutoff = datetime.now() - timedelta(days=90)
-            valid_history = []
-            for item in history_list:
-                try:
-                    dt = datetime.strptime(item["timestamp"], "%Y-%m-%d %I:%M:%S %p")
-                    if dt >= cutoff:
-                        valid_history.append(item)
-                except Exception:
-                    valid_history.append(item)
-            return jsonify({"hostname": hostname, "history": valid_history})
+            return jsonify({"hostname": hostname, "history": data["history"].get(hostname, [])})
         return jsonify({"history": data.get("history", {})})
         
     elif request.method == "DELETE":
