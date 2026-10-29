@@ -1,167 +1,41 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RMM Cloud Control Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-</head>
-<body class="bg-light">
-    <nav class="navbar navbar-expand-lg navbar-dark bg-dark">
-        <div class="container-fluid">
-            <a class="navbar-brand fw-bold" href="#">RMM Cloud Control Center</a>
-            <div class="d-flex align-items-center">
-                <button class="btn btn-outline-warning btn-sm me-2" onclick="openResetModal()">🔑 Change Password</button>
-                <a href="/logout" class="btn btn-outline-danger btn-sm">Logout</a>
-            </div>
-        </div>
-    </nav>
+document.getElementById('blockForm').addEventListener('submit', function(e) {
+    e.preventDefault();
+    const domainInput = document.getElementById('domainInput');
+    const domain = domainInput.value.trim();
+    if(!domain) return;
 
-    <div class="container mt-4">
-        <!-- Systems Table -->
-        <div class="card shadow-sm mb-4">
-            <div class="card-header bg-primary text-white fw-bold">Connected Systems</div>
-            <div class="card-body p-0">
-                <table class="table table-hover table-striped mb-0">
-                    <thead class="table-dark">
-                        <tr>
-                            <th>Hostname</th>
-                            <th>Status</th>
-                            <th>Last Active (IST)</th>
-                            <th>Actions</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% if systems %}
-                            {% for host, info in systems.items() %}
-                            <tr>
-                                <td class="fw-bold">{{ host }}</td>
-                                <td>
-                                    {% if info.agent_status == 'Active' %}
-                                        <span class="badge bg-success">Active</span>
-                                    {% else %}
-                                        <span class="badge bg-danger">Offline / Idle</span>
-                                    {% endif %}
-                                </td>
-                                <td>{{ info.last_active }}</td>
-                                <td>
-                                    <button class="btn btn-sm btn-info text-white" onclick="viewHistory('{{ host }}')">View 3-Month History</button>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        {% else %}
-                            <tr>
-                                <td colspan="4" class="text-center text-muted">No client systems connected yet.</td>
-                            </tr>
-                        {% endif %}
-                    </tbody>
-                </table>
-            </div>
-        </div>
+    fetch('/api/blocked-domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domain: domain, action: 'block' })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            domainInput.value = '';
+            // Directly add domain to UI list without hard page reload
+            const ul = document.getElementById('blockedDomainsList');
+            if(ul.children[0] && ul.children[0].innerText.includes('No domains currently blocked')) {
+                ul.innerHTML = '';
+            }
+            const li = document.createElement('li');
+            li.className = 'list-group-item d-flex justify-content-between align-items-center';
+            li.innerHTML = `${domain} <button class="btn btn-sm btn-outline-danger" onclick="unblockDomain('${domain}')">Unblock</button>`;
+            ul.appendChild(li);
+        }
+    });
+});
 
-        <!-- Blocked Domains Section -->
-        <div class="card shadow-sm">
-            <div class="card-header bg-danger text-white fw-bold">Domain Blocking Manager</div>
-            <div class="card-body">
-                <form id="blockForm" class="row g-3 mb-3">
-                    <div class="col-8 col-md-10">
-                        <input type="text" id="domainInput" class="form-control" placeholder="e.g. facebook.com, youtube.com" required>
-                    </div>
-                    <div class="col-4 col-md-2">
-                        <button type="submit" class="btn btn-danger w-100">Block Domain</button>
-                    </div>
-                </form>
-
-                <ul class="list-group" id="blockedDomainsList">
-                    {% for domain in blocked_domains %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ domain }}
-                        <button class="btn btn-sm btn-outline-danger" onclick="unblockDomain('{{ domain }}')">Unblock</button>
-                    </li>
-                    {% else %}
-                    <li class="list-group-item text-muted text-center">No domains currently blocked.</li>
-                    {% endfor %}
-                </ul>
-            </div>
-        </div>
-    </div>
-
-    <!-- History Modal -->
-    <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog modal-lg modal-dialog-scrollable">
-            <div class="modal-content">
-                <div class="modal-header bg-dark text-white">
-                    <h5 class="modal-title" id="historyModalTitle">Browsing History</h5>
-                    <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body p-0">
-                    <table class="table table-striped mb-0">
-                        <thead class="table-light">
-                            <tr>
-                                <th>Visited URL / Domain</th>
-                                <th>Visited Time (IST)</th>
-                            </tr>
-                        </thead>
-                        <tbody id="historyTableBody">
-                            <!-- Injected via JavaScript -->
-                        </tbody>
-                    </table>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <!-- Reset Password Modal -->
-    <div class="modal fade" id="resetPasswordModal" tabindex="-1" aria-hidden="true">
-        <div class="modal-dialog">
-            <div class="modal-content">
-                <div class="modal-header bg-warning">
-                    <h5 class="modal-title fw-bold">Reset Password via OTP</h5>
-                    <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
-                </div>
-                <div class="modal-body">
-                    <p class="small text-muted">OTP will be sent to registered phone number ending in <b>{{ phone_number[-4:] }}</b>.</p>
-                    <button class="btn btn-primary btn-sm mb-3" onclick="requestOtp()" id="otpBtn">Send OTP</button>
-                    
-                    <div id="otpSection" style="display: none;">
-                        <div class="mb-3">
-                            <label class="form-label">Enter 6-Digit OTP</label>
-                            <input type="text" id="otpInput" class="form-control" placeholder="123456">
-                        </div>
-                        <div class="mb-3">
-                            <label class="form-label">New Password</label>
-                            <input type="password" id="newPassInput" class="form-control" placeholder="Enter new password">
-                        </div>
-                        <button class="btn btn-success w-100" onclick="submitPasswordReset()">Confirm Password Change</button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    </div>
-
-    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    <script>
-        let historyModalObj;
-        let resetModalObj;
-
-        function viewHistory(hostname) {
-            document.getElementById('historyModalTitle').innerText = "Browsing History: " + hostname;
-            historyModalObj = new bootstrap.Modal(document.getElementById('historyModal'));
-            historyModalObj.show();
-
-            fetch('/api/system/history?hostname=' + encodeURIComponent(hostname))
-            .then(res => res.json())
-            .then(data => {
-                const tbody = document.getElementById('historyTableBody');
-                tbody.innerHTML = '';
-                
-                if(!data.history || data.history.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">No history logged yet.</td></tr>';
-                    return;
-                }
-
-                data.history.slice().reverse().forEach(item => {
-                    const tr = document.createElement('tr');
-                    
-                    let urlDisplay = item.url;
-                    let targetLink = item.url;
+function unblockDomain(domain) {
+    fetch('/api/blocked-domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domain: domain, action: 'unblock' })
+    })
+    .then(res => res.json())
+    .then(data => {
+        if(data.status === 'success') {
+            location.reload();
+        }
+    });
+}
