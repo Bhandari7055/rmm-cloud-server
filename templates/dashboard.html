@@ -2,110 +2,138 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RMM Dashboard</title>
-    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
-    <style>
-        body { background-color: #f8f9fa; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; }
-        .card { border-radius: 10px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-        .table-header { background-color: #007bff; color: white; }
-        .badge-active { background-color: #28a745; color: white; padding: 6px 12px; font-weight: 600; border-radius: 4px; }
-        .badge-paused { background-color: #fff3cd; color: #856404; border: 1px solid #ffeeba; padding: 6px 12px; font-weight: 600; border-radius: 4px; }
-    </style>
+    <title>RMM Cloud Control Dashboard</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
 </head>
-<body>
 
+<body class="bg-light">
 <div class="container py-4">
-    <div class="d-flex justify-content-between align-items-center mb-4">
-        <h2 class="fw-bold">RMM Cloud Dashboard</h2>
-        <div>
-            <a href="/forgot-password" class="text-decoration-none me-3">🔑 Change Password</a>
-            <a href="/logout" class="btn btn-secondary btn-sm">Logout</a>
+    <h2 class="mb-4">RMM Cloud Control Panel</h2>
+
+    <!-- Block / Unblock Domain Section -->
+    <div class="card mb-4 shadow-sm">
+        <div class="card-header bg-primary text-white">URL / Domain Blocking Policy</div>
+        <div class="card-body">
+            <div class="input-group mb-3">
+                <input type="text" id="domainInput" class="form-control" placeholder="e.g. facebook.com, youtube.com">
+                <button class="btn btn-danger" onclick="updateDomain('block')">Block Domain</button>
+            </div>
+            <h5>Currently Blocked Domains:</h5>
+            <ul class="list-group" id="blockedList">
+                {% for d in blocked_domains %}
+                <li class="list-group-item d-flex justify-content-between align-items-center">
+                    {{ d }}
+                    <button class="btn btn-sm btn-success" onclick="updateDomain('unblock', '{{ d }}')">Unblock</button>
+                </li>
+                {% else %}
+                <li class="list-group-item text-muted">No domains blocked yet.</li>
+                {% endfor %}
+            </ul>
         </div>
     </div>
 
-    <!-- Domain Blocking Section -->
-    <div class="card p-4 mb-4">
-        <h4 class="fw-bold mb-3">URL / Domain Blocking Policy</h4>
-        <form action="/block-domain" method="POST" class="d-flex gap-2 mb-3" style="max-width: 400px;">
-            <input type="text" name="domain" class="form-control" placeholder="e.g. facebook, youtube" required>
-            <button type="submit" class="btn btn-success text-nowrap">Block Domain</button>
-        </form>
-
-        <h5 class="fw-bold mt-2">Blocked Domains List:</h5>
-        <div class="table-responsive">
-            <table class="table table-bordered align-middle">
-                <thead class="table-header">
-                    <tr>
-                        <th>Domain Keyword</th>
-                        <th style="width: 150px;">Action</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% if blocked %}
-                        {% for item in blocked %}
-                        <tr>
-                            <td>{{ item.domain }}</td>
-                            <td>
-                                <form action="/unblock-domain/{{ item.id }}" method="POST" style="display:inline;">
-                                    <button type="submit" class="btn btn-danger btn-sm">Unblock</button>
-                                </form>
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    {% else %}
-                        <tr>
-                            <td colspan="2" class="text-muted">No domains blocked yet.</td>
-                        </tr>
-                    {% endif %}
-                </tbody>
-            </table>
-        </div>
-    </div>
-
-    <!-- Connected PCs Monitoring Section -->
-    <div class="card p-4">
-        <h4 class="fw-bold mb-3">Connected PCs Monitoring</h4>
-        <div class="table-responsive">
-            <table class="table table-bordered align-middle">
-                <thead class="table-header">
+    <!-- Connected PCs Monitoring -->
+    <div class="card shadow-sm">
+        <div class="card-header bg-dark text-white">Connected Systems & Monitoring</div>
+        <div class="card-body p-0">
+            <table class="table table-striped mb-0">
+                <thead>
                     <tr>
                         <th>PC Name</th>
                         <th>Agent Status</th>
-                        <th>Screenshot Sending Status</th>
-                        <th>Last Active</th>
+                        <th>Screenshot Share Status</th>
+                        <th>Last Active Time</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
-                    {% if agents %}
-                        {% for agent in agents %}
-                        <tr>
-                            <td class="fw-bold">💻 {{ agent.hostname }}</td>
-                            <td><span class="text-success fw-bold">ONLINE</span></td>
-                            <td>
-                                {% if agent.screenshot_status and 'Active' in agent.screenshot_status %}
-                                    <span class="badge-active">🟢 Active</span>
-                                {% else %}
-                                    <span class="badge-paused">⏸️ Paused (User Idle)</span>
-                                {% endif %}
-                            </td>
-                            <td>{{ agent.last_seen }}</td>
-                            <td>
-                                <a href="/agent/{{ agent.hostname }}" class="btn btn-link btn-sm text-decoration-none fw-bold">View Full History 🔍</a>
-                            </td>
-                        </tr>
-                        {% endfor %}
+                    {% for name, sys in systems.items() %}
+                    <tr>
+                        <td><strong>{{ sys.hostname }}</strong></td>
+                        <td><span class="badge bg-success">{{ sys.agent_status }}</span></td>
+                        <td>
+                            {% if sys.screenshot_status == 'Active' %}
+                                <span class="badge bg-primary">Active</span>
+                            {% else %}
+                                <span class="badge bg-warning text-dark">Idle / Paused</span>
+                            {% endif %}
+                        </td>
+                        <td>{{ sys.last_active }}</td>
+                        <td>
+                            <button class="btn btn-sm btn-info text-white" onclick="viewHistory('{{ sys.hostname }}')">View 3-Month History</button>
+                        </td>
+                    </tr>
                     {% else %}
-                        <tr>
-                            <td colspan="5" class="text-center text-muted">No PCs connected yet.</td>
-                        </tr>
-                    {% endif %}
+                    <tr><td colspan="5" class="text-center text-muted p-3">No systems registered yet.</td></tr>
+                    {% endfor %}
                 </tbody>
             </table>
         </div>
     </div>
 </div>
 
+<!-- History Modal -->
+<div class="modal fade" id="historyModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modalTitle">System URL History</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <table class="table table-bordered">
+            <thead>
+                <tr>
+                    <th>Visited Title / URL</th>
+                    <th>Timestamp</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="historyTableBody"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+<script>
+function updateDomain(action, domainOverride=null) {
+    const domain = domainOverride || document.getElementById('domainInput').value;
+    if(!domain) return;
+    
+    fetch('/api/blocked-domains', {
+        method: 'POST',
+        headers: {'Content-Type': 'json'},
+        body: JSON.stringify({domain: domain, action: action})
+    }).then(() => location.reload());
+}
+
+function viewHistory(hostname) {
+    document.getElementById('modalTitle').innerText = "URL History - " + hostname;
+    fetch('/api/system/history?hostname=' + hostname)
+    .then(res => res.json())
+    .then(data => {
+        const body = document.getElementById('historyTableBody');
+        body.innerHTML = '';
+        data.history.forEach(item => {
+            body.innerHTML += `<tr>
+                <td>${item.url}</td>
+                <td>${item.timestamp}</td>
+                <td><button class="btn btn-sm btn-danger" onclick="deleteHistory('${hostname}', '${item.url}')">Delete</button></td>
+            </tr>`;
+        });
+        new bootstrap.Modal(document.getElementById('historyModal')).show();
+    });
+}
+
+function deleteHistory(hostname, url) {
+    fetch('/api/system/history', {
+        method: 'DELETE',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({hostname: hostname, url: url})
+    }).then(() => viewHistory(hostname));
+}
+</script>
 </body>
 </html>
