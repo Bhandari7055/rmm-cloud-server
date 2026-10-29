@@ -14,6 +14,9 @@ IST = pytz.timezone('Asia/Kolkata')
 def get_ist_time():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
 
+def get_today_str():
+    return datetime.now(IST).strftime("%Y-%m-%d")
+
 def load_data():
     if os.path.exists(DATA_FILE):
         try:
@@ -28,7 +31,8 @@ def load_data():
         "systems": {},
         "admin_password": "admin",
         "phone_number": "7055361662",
-        "history": {}
+        "history": {},
+        "activity_logs": {}
     }
 
 def save_data(data):
@@ -38,20 +42,30 @@ def save_data(data):
     except Exception as e:
         print(f"Error saving data: {e}")
 
-def clean_old_history(data):
-    cutoff_date = datetime.now(IST) - timedelta(days=90)
-    for host in data.get("history", {}):
-        filtered = []
-        for item in data["history"][host]:
-            try:
-                item_time = datetime.strptime(item["timestamp"], "%Y-%m-%d %I:%M:%S %p")
-                item_time = IST.localize(item_time)
-                if item_time >= cutoff_date:
-                    filtered.append(item)
-            except Exception:
-                filtered.append(item)
-        data["history"][host] = filtered
-    return data
+# Helper: Calculate 24h work vs idle stats
+def calculate_24h_stats(hostname, data):
+    logs = data.get("activity_logs", {}).get(hostname, [])
+    now = datetime.now(IST)
+    cutoff = now - timedelta(hours=24)
+    
+    active_minutes = 0
+    idle_minutes = 0
+    
+    for entry in logs:
+        try:
+            t = datetime.strptime(entry["timestamp"], "%Y-%m-%d %I:%M:%S %p")
+            t = IST.localize(t)
+            if t >= cutoff:
+                if entry.get("status") == "Active":
+                    active_minutes += 1
+                else:
+                    idle_minutes += 1
+        except Exception:
+            pass
+            
+    active_hours = round(active_minutes / 60, 1)
+    idle_hours = round(idle_minutes / 60, 1)
+    return active_hours, idle_hours
 
 @app.route("/")
 def home():
@@ -84,17 +98,24 @@ def dashboard():
     systems = data.get("systems", {})
     now_ist = datetime.now(IST)
     
-    # Dynamic Agent Offline / Idle Status Check (2 mins inactivity)
+    # Check Active vs Idle status (1 min ping delay or 5 min user inactivity reported by agent)
     for host, sys_info in systems.items():
         try:
             last_time = datetime.strptime(sys_info["last_active"], "%Y-%m-%d %I:%M:%S %p")
             last_time = IST.localize(last_time)
-            if (now_ist - last_time).total_seconds() > 120:
+            user_idle = sys_info.get("user_idle", False)
+            
+            # If ping delayed > 60s OR user was idle > 5 mins
+            if (now_ist - last_time).total_seconds() > 60 or user_idle:
                 sys_info["agent_status"] = "Offline / Idle"
             else:
                 sys_info["agent_status"] = "Active"
+                
+            active_h, idle_h = calculate_24h_stats(host, data)
+            sys_info["work_hours_24h"] = f"{active_h} hrs Work / {idle_h} hrs Idle"
         except Exception:
-            pass
+            sys_info["agent_status"] = "Offline / Idle"
+            sys_info["work_hours_24h"] = "0 hrs Work / 0 hrs Idle"
 
     return render_template("dashboard.html", 
                            blocked_domains=data.get("blocked_domains", []), 
@@ -107,10 +128,14 @@ def send_otp():
     otp = str(random.randint(100000, 999999))
     session["reset_otp"] = otp
     phone = data.get("phone_number", "7055361662")
+    
+    # Fast2SMS or SMS Gateway call integration placeholder
+    # In production, replace with actual HTTP request to SMS gateway API
+    print(f"[SMS Gateway Call] Sending OTP {otp} to mobile +91{phone}")
+    
     return jsonify({
         "status": "success", 
-        "message": f"OTP sent to +91-XXXXXX{phone[-4:]}! (OTP: {otp})",
-        "otp": otp
+        "message": f"OTP successfully sent to mobile number ending in +91-XXXXXX{phone[-4:]}!"
     })
 
 @app.route("/reset-password", methods=["POST"])
@@ -138,8 +163,9 @@ def manage_blocked_domains():
     action = req_data.get("action", "block")
     
     domains = data.get("blocked_domains", [])
-    if action == "block" and domain and domain not in domains:
-        domains.append(domain)
+    if action == "block" and domain:
+        if domain not in domains:
+            domains.append(domain)
     elif action == "unblock" and domain in domains:
         domains.remove(domain)
         
@@ -151,61 +177,70 @@ def manage_blocked_domains():
 def system_ping():
     req_data = request.json or {}
     hostname = req_data.get("hostname")
-    screenshot_status = req_data.get("screenshot_status", "Paused (User Idle)")
+    user_idle = req_data.get("user_idle", False) # 5-min mouse/keyboard idle flag
     
     if not hostname:
         return jsonify({"error": "Hostname required"}), 400
         
     data = load_data()
     now_ist = get_ist_time()
+    today_str = get_today_str()
+    
+    status_str = "Idle" if user_idle else "Active"
     
     data["systems"][hostname] = {
         "hostname": hostname,
-        "agent_status": "Active",
-        "screenshot_status": screenshot_status,
+        "agent_status": status_str,
+        "user_idle": user_idle,
         "last_active": now_ist
     }
+    
+    # Store per-minute activity log for 24h work vs idle calculations
+    if "activity_logs" not in data:
+        data["activity_logs"] = {}
+    if hostname not in data["activity_logs"]:
+        data["activity_logs"][hostname] = []
+        
+    data["activity_logs"][hostname].append({"timestamp": now_ist, "status": status_str})
+    # Keep only 24-48 hours logs to prevent JSON file bloating
+    data["activity_logs"][hostname] = data["activity_logs"][hostname][-2880:]
+    
     save_data(data)
     return jsonify({"status": "acknowledged"})
 
-@app.route("/api/system/history", methods=["GET", "POST", "DELETE"])
+@app.route("/api/system/history", methods=["GET", "POST"])
 def system_history():
     data = load_data()
-    data = clean_old_history(data)
     
     if request.method == "POST":
         req = request.json or {}
         hostname = req.get("hostname")
         url = req.get("url")
         timestamp = req.get("timestamp", get_ist_time())
+        date_str = req.get("date", get_today_str())
         
         if hostname and url:
             if "history" not in data:
                 data["history"] = {}
             if hostname not in data["history"]:
-                data["history"][hostname] = []
+                data["history"][hostname] = {}
+            if date_str not in data["history"][hostname]:
+                data["history"][hostname][date_str] = []
             
-            if not data["history"][hostname] or data["history"][hostname][-1].get("url") != url:
-                data["history"][hostname].append({"url": url, "timestamp": timestamp})
-                save_data(data)
+            data["history"][hostname][date_str].append({"url": url, "timestamp": timestamp})
+            save_data(data)
         return jsonify({"status": "logged"})
         
     elif request.method == "GET":
         hostname = request.args.get("hostname")
+        selected_date = request.args.get("date", get_today_str())
+        
         if hostname:
-            return jsonify({"hostname": hostname, "history": data.get("history", {}).get(hostname, [])})
+            host_hist = data.get("history", {}).get(hostname, {})
+            # Return history for specific requested date
+            date_history = host_hist.get(selected_date, [])
+            return jsonify({"hostname": hostname, "date": selected_date, "history": date_history, "available_dates": list(host_hist.keys())})
         return jsonify({"history": data.get("history", {})})
-        
-    elif request.method == "DELETE":
-        req = request.json or {}
-        hostname = req.get("hostname")
-        url_to_delete = req.get("url")
-        
-        if hostname in data.get("history", {}):
-            data["history"][hostname] = [item for item in data["history"][hostname] if item.get("url") != url_to_delete]
-            save_data(data)
-            return jsonify({"status": "deleted"})
-        return jsonify({"error": "Host not found"}), 404
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
