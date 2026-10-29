@@ -1,226 +1,165 @@
+from flask import Flask, render_template, request, jsonify, redirect, url_for, session
+import json
 import os
-import sqlite3
+import random
 from datetime import datetime, timedelta
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SECRET_KEY", "rmm_secret_key_12345")
+app.secret_key = "rmm_super_secret_key"
 
-DB_FILE = "rmm.db"
+DATA_FILE = "rmm_data.json"
 
-def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    # Auth table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS users (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT UNIQUE,
-            password TEXT
-        )
-    ''')
-    
-    # Admin default user
-    cursor.execute("INSERT OR IGNORE INTO users (username, password) VALUES ('admin', 'admin123')")
-    
-    # Systems status table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS systems (
-            hostname TEXT PRIMARY KEY,
-            last_ping TIMESTAMP,
-            screenshot_status TEXT
-        )
-    ''')
-    
-    # Blocked domains table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS blocked_domains (
-            domain TEXT PRIMARY KEY
-        )
-    ''')
-    
-    # Window history table
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS window_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            hostname TEXT,
-            url TEXT,
-            timestamp TEXT
-        )
-    ''')
-    
-    conn.commit()
-    conn.close()
+def load_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
+    return {
+        "blocked_domains": [],
+        "systems": {},
+        "admin_password": "admin",
+        "phone_number": "9876543210",
+        "history": {}
+    }
 
-init_db()
+def save_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
-# --- Auth Routes ---
-@app.route('/login', methods=['GET', 'POST'])
+@app.route("/")
+def home():
+    if session.get("logged_in"):
+        return redirect(url_for("dashboard"))
+    return redirect(url_for("login"))
+
+@app.route("/login", methods=["GET", "POST"])
 def login():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        password = request.form.get('password')
-        
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("SELECT * FROM users WHERE username=? AND password=?", (username, password))
-        user = cursor.fetchone()
-        conn.close()
-        
-        if user:
-            session['user'] = username
-            return redirect(url_for('dashboard'))
-        else:
-            return render_template('login.html', msg="Invalid Credentials!")
-            
-    return render_template('login.html')
+    data = load_data()
+    if request.method == "POST":
+        password = request.form.get("password")
+        if password == data.get("admin_password"):
+            session["logged_in"] = True
+            return redirect(url_for("dashboard"))
+        return render_template("login.html", error="Incorrect Password")
+    return render_template("login.html")
 
-@app.route('/logout')
-def logout():
-    session.pop('user', None)
-    return redirect(url_for('login'))
-
-# Both /reset-password and /forgot-password routes enabled to fix 404
-@app.route('/reset-password', methods=['GET', 'POST'])
-@app.route('/forgot-password', methods=['GET', 'POST'])
-def reset_password():
-    if request.method == 'POST':
-        username = request.form.get('username')
-        new_password = request.form.get('new_password')
-        
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("UPDATE users SET password=? WHERE username=?", (new_password, username))
-        conn.commit()
-        conn.close()
-        
-        return render_template('reset_password.html', msg="Password Updated Successfully! Go back to login.")
-        
-    return render_template('reset_password.html')
-
-# --- Dashboard ---
-@app.route('/')
-@app.route('/dashboard')
+@app.route("/dashboard")
 def dashboard():
-    if 'user' not in session:
-        return redirect(url_for('login'))
-        
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    
-    # Fetch Systems
-    cursor.execute("SELECT hostname, last_ping, screenshot_status FROM systems")
-    raw_systems = cursor.fetchall()
-    
-    systems = []
-    now = datetime.now()
-    for sys in raw_systems:
-        hostname, last_ping_str, screenshot_status = sys
-        is_active = False
-        if last_ping_str:
-            try:
-                last_ping = datetime.strptime(last_ping_str, "%Y-%m-%d %H:%M:%S")
-                if now - last_ping < timedelta(seconds=30):
-                    is_active = True
-            except Exception:
-                pass
-                
-        systems.append({
-            "hostname": hostname,
-            "last_ping": last_ping_str,
-            "is_active": is_active,
-            "screenshot_status": screenshot_status
-        })
-        
-    # Fetch Blocked Domains
-    cursor.execute("SELECT domain FROM blocked_domains")
-    blocked_domains = [row[0] for row in cursor.fetchall()]
-    
-    conn.close()
-    return render_template('dashboard.html', systems=systems, blocked_domains=blocked_domains)
+    if not session.get("logged_in"):
+        return redirect(url_for("login"))
+    data = load_data()
+    return render_template("dashboard.html", 
+                           blocked_domains=data.get("blocked_domains", []), 
+                           systems=data.get("systems", {}))
 
-# --- Agent APIs ---
-@app.route('/api/system/ping', methods=['POST'])
-def api_ping():
-    data = request.json or {}
-    hostname = data.get('hostname')
-    screenshot_status = data.get('screenshot_status', 'Active')
-    
-    if hostname:
-        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute('''
-            INSERT INTO systems (hostname, last_ping, screenshot_status)
-            VALUES (?, ?, ?)
-            ON CONFLICT(hostname) DO UPDATE SET
-                last_ping=excluded.last_ping,
-                screenshot_status=excluded.screenshot_status
-        ''', (hostname, now_str, screenshot_status))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    return jsonify({"error": "hostname required"}), 400
+@app.route("/forgot-password", methods=["GET", "POST"])
+def forgot_password():
+    data = load_data()
+    if request.method == "POST":
+        otp = str(random.randint(100000, 999999))
+        session["reset_otp"] = otp
+        print(f"[OTP DEBUG] Sent OTP {otp} to mobile number {data.get('phone_number')}")
+        return render_template("verify_otp.html", message=f"OTP sent to {data.get('phone_number')}")
+    return render_template("forgot_password.html")
 
-@app.route('/api/blocked-domains', methods=['GET', 'POST', 'DELETE'])
-def api_blocked_domains():
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
+@app.route("/verify-otp", methods=["POST"])
+def verify_otp():
+    user_otp = request.form.get("otp")
+    new_pass = request.form.get("new_password")
+    if user_otp == session.get("reset_otp"):
+        data = load_data()
+        data["admin_password"] = new_pass
+        save_data(data)
+        session.pop("reset_otp", None)
+        return render_template("login.html", success="Password changed successfully!")
+    return render_template("verify_otp.html", error="Invalid OTP")
+
+# --- API ENDPOINTS FOR AGENT & DASHBOARD ---
+
+@app.route("/api/blocked-domains", methods=["GET", "POST"])
+def manage_blocked_domains():
+    data = load_data()
+    if request.method == "GET":
+        return jsonify({"blocked_domains": data.get("blocked_domains", [])})
     
-    if request.method == 'GET':
-        cursor.execute("SELECT domain FROM blocked_domains")
-        domains = [row[0] for row in cursor.fetchall()]
-        conn.close()
-        return jsonify({"blocked_domains": domains})
+    req_data = request.json or {}
+    domain = req_data.get("domain", "").strip().lower()
+    action = req_data.get("action", "block")
+    
+    domains = data.get("blocked_domains", [])
+    if action == "block" and domain and domain not in domains:
+        domains.append(domain)
+    elif action == "unblock" and domain in domains:
+        domains.remove(domain)
         
-    elif request.method == 'POST':
-        data = request.json or {}
-        domain = data.get('domain', '').strip().lower()
-        if domain:
-            cursor.execute("INSERT OR IGNORE INTO blocked_domains (domain) VALUES (?)", (domain,))
-            conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-        
-    elif request.method == 'DELETE':
-        data = request.json or {}
-        domain = data.get('domain', '').strip().lower()
-        if domain:
-            cursor.execute("DELETE FROM blocked_domains WHERE domain=?", (domain,))
-            conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
+    data["blocked_domains"] = domains
+    save_data(data)
+    return jsonify({"status": "success", "blocked_domains": domains})
 
-@app.route('/api/system/history', methods=['POST'])
-def api_history():
-    data = request.json or {}
-    hostname = data.get('hostname')
-    url = data.get('url')
-    timestamp = data.get('timestamp')
+@app.route("/api/system/ping", methods=["POST"])
+def system_ping():
+    req_data = request.json or {}
+    hostname = req_data.get("hostname")
+    screenshot_status = req_data.get("screenshot_status", "Paused (User Idle)")
     
-    if hostname and url:
-        conn = sqlite3.connect(DB_FILE)
-        cursor = conn.cursor()
-        cursor.execute("INSERT INTO window_history (hostname, url, timestamp) VALUES (?, ?, ?)", 
-                       (hostname, url, timestamp))
-        conn.commit()
-        conn.close()
-        return jsonify({"status": "success"})
-    return jsonify({"error": "invalid payload"}), 400
-
-@app.route('/history/<hostname>')
-def view_history(hostname):
-    if 'user' not in session:
-        return redirect(url_for('login'))
+    if not hostname:
+        return jsonify({"error": "Hostname required"}), 400
         
-    conn = sqlite3.connect(DB_FILE)
-    cursor = conn.cursor()
-    cursor.execute("SELECT url, timestamp FROM window_history WHERE hostname=? ORDER BY id DESC LIMIT 100", (hostname,))
-    records = cursor.fetchall()
-    conn.close()
+    data = load_data()
+    now_str = datetime.now().strftime("%Y-%m-%d %I:%M:%S %p")
     
-    return render_template('agent_history.html', hostname=hostname, records=records)
+    data["systems"][hostname] = {
+        "hostname": hostname,
+        "agent_status": "Active",
+        "screenshot_status": screenshot_status,
+        "last_active": now_str
+    }
+    save_data(data)
+    return jsonify({"status": "acknowledged"})
 
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
+@app.route("/api/system/history", methods=["GET", "POST", "DELETE"])
+def system_history():
+    data = load_data()
+    
+    if request.method == "POST":
+        req = request.json or {}
+        hostname = req.get("hostname")
+        url = req.get("url")
+        timestamp = req.get("timestamp", datetime.now().strftime("%Y-%m-%d %I:%M:%S %p"))
+        
+        if hostname and url:
+            if hostname not in data["history"]:
+                data["history"][hostname] = []
+            data["history"][hostname].append({"url": url, "timestamp": timestamp})
+            save_data(data)
+        return jsonify({"status": "logged"})
+        
+    elif request.method == "GET":
+        hostname = request.args.get("hostname")
+        if hostname:
+            history_list = data["history"].get(hostname, [])
+            # 3-Month filter check
+            cutoff = datetime.now() - timedelta(days=90)
+            valid_history = []
+            for item in history_list:
+                try:
+                    dt = datetime.strptime(item["timestamp"], "%Y-%m-%d %I:%M:%S %p")
+                    if dt >= cutoff:
+                        valid_history.append(item)
+                except Exception:
+                    valid_history.append(item)
+            return jsonify({"hostname": hostname, "history": valid_history})
+        return jsonify({"history": data.get("history", {})})
+        
+    elif request.method == "DELETE":
+        req = request.json or {}
+        hostname = req.get("hostname")
+        url_to_delete = req.get("url")
+        
+        if hostname in data["history"]:
+            data["history"][hostname] = [item for item in data["history"][hostname] if item["url"] != url_to_delete]
+            save_data(data)
+            return jsonify({"status": "deleted"})
+        return jsonify({"error": "Host not found"}), 404
+
+if __name__ == "__main__":
+    app.run(host="0.0.0.0", port=5000)
