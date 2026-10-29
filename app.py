@@ -80,9 +80,25 @@ def dashboard():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
     data = load_data()
+    
+    systems = data.get("systems", {})
+    now_ist = datetime.now(IST)
+    
+    # Dynamic Agent Offline / Idle Status Check (2 mins inactivity)
+    for host, sys_info in systems.items():
+        try:
+            last_time = datetime.strptime(sys_info["last_active"], "%Y-%m-%d %I:%M:%S %p")
+            last_time = IST.localize(last_time)
+            if (now_ist - last_time).total_seconds() > 120:
+                sys_info["agent_status"] = "Offline / Idle"
+            else:
+                sys_info["agent_status"] = "Active"
+        except Exception:
+            pass
+
     return render_template("dashboard.html", 
                            blocked_domains=data.get("blocked_domains", []), 
-                           systems=data.get("systems", {}),
+                           systems=systems,
                            phone_number=data.get("phone_number", "7055361662"))
 
 @app.route("/send-otp", methods=["POST"])
