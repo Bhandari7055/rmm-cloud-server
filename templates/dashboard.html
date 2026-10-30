@@ -18,7 +18,7 @@
     </nav>
 
     <div class="container mt-4">
-        <!-- Connected Systems Table -->
+        <!-- Connected Systems Table with Screenshot & Activity -->
         <div class="card shadow-sm mb-4">
             <div class="card-header bg-primary text-white fw-bold">Connected Systems & 24H Activity Tracker</div>
             <div class="card-body p-0">
@@ -27,6 +27,7 @@
                         <tr>
                             <th>Hostname</th>
                             <th>Status</th>
+                            <th>Screenshot Stream</th>
                             <th>24H Active/Idle Summary</th>
                             <th>Last Active (IST)</th>
                             <th>Actions</th>
@@ -45,6 +46,9 @@
                                     {% endif %}
                                 </td>
                                 <td>
+                                    <span class="badge bg-info text-dark">{{ info.screenshot_status if info.screenshot_status else 'Active Stream' }}</span>
+                                </td>
+                                <td>
                                     <span class="badge bg-secondary">{{ info.work_hours_24h }}</span>
                                 </td>
                                 <td>{{ info.last_active }}</td>
@@ -55,7 +59,7 @@
                             {% endfor %}
                         {% else %}
                             <tr>
-                                <td colspan="5" class="text-center text-muted">No client systems connected yet.</td>
+                                <td colspan="6" class="text-center text-muted">No client systems connected yet.</td>
                             </tr>
                         {% endif %}
                     </tbody>
