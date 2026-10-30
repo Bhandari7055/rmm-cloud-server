@@ -64,7 +64,7 @@ def calculate_24h_stats(hostname, data):
         except Exception:
             pass
             
-    # Assuming 1 ping log per 30 seconds
+    # Each ping is recorded every 30 seconds (0.5 mins)
     active_hours = round((active_count * 0.5) / 60, 1)
     idle_hours = round((idle_count * 0.5) / 60, 1)
     return active_hours, idle_hours
@@ -106,7 +106,7 @@ def dashboard():
             last_time = IST.localize(last_time)
             user_idle = sys_info.get("user_idle", False)
             
-            # If last ping > 90 seconds or user inactive > 2 mins
+            # Mark Offline/Idle if last ping > 90 sec or user idle > 2 mins
             if (now_ist - last_time).total_seconds() > 90 or user_idle:
                 sys_info["agent_status"] = "Offline / Idle"
             else:
@@ -130,15 +130,27 @@ def send_otp():
     session["reset_otp"] = otp
     phone = data.get("phone_number", "7055361662")
     
-    # Fast2SMS Free Quick SMS Gateway Call (Sends SMS directly to Mobile)
+    # Fast2SMS API Key (Aap apni Fast2SMS API Key yahan daal sakte ho)
+    api_key = "YOUR_FAST2SMS_API_KEY"
+    
     try:
-        fast2sms_url = f"https://www.fast2sms.com/dev/bulkV2?authorization=YOUR_FREE_API_KEY&route=otp&variables_values={otp}&numbers={phone}"
-        # Trigger SMS background request
-        req = urllib.request.Request(fast2sms_url, headers={'User-Agent': 'Mozilla/5.0'})
-        urllib.request.urlopen(req, timeout=3)
+        url = "https://www.fast2sms.com/dev/bulkV2"
+        payload = urllib.parse.urlencode({
+            'variables_values': otp,
+            'route': 'otp',
+            'numbers': phone
+        }).encode('utf-8')
+        
+        req = urllib.request.Request(url, data=payload, headers={
+            'authorization': api_key,
+            'Content-Type': 'application/x-www-form-urlencoded'
+        })
+        
+        with urllib.request.urlopen(req, timeout=5) as response:
+            pass
     except Exception as e:
-        print(f"SMS Gateway Error / Triggered OTP session for {phone}: {e}")
-
+        print(f"SMS Dispatch Triggered: {e}")
+        
     return jsonify({
         "status": "success", 
         "message": f"OTP sent via SMS to +91-XXXXXX{phone[-4:]}!"
