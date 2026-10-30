@@ -44,11 +44,33 @@ def save_data(data):
     except Exception as e:
         print(f"Error saving data: {e}")
 
-def calculate_24h_stats(hostname, data):
+# Cleanup history older than 90 days (3 Months)
+def cleanup_old_history(data):
+    now = datetime.now(IST)
+    cutoff = now - timedelta(days=90)
+    
+    history = data.get("history", {})
+    for host in list(history.keys()):
+        for date_str in list(history[host].keys()):
+            try:
+                dt = datetime.strptime(date_str, "%Y-%m-%d")
+                dt = IST.localize(dt)
+                if dt < cutoff:
+                    del history[host][date_str]
+            except Exception:
+                pass
+
+# Calculate Work vs Idle Stats (6:00 AM to 5:59 AM Shift)
+def calculate_shift_stats(hostname, data):
     logs = data.get("activity_logs", {}).get(hostname, [])
     now = datetime.now(IST)
-    cutoff = now - timedelta(hours=24)
     
+    # Calculate shift start time (Today 6:00 AM or Yesterday 6:00 AM)
+    if now.hour >= 6:
+        shift_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    else:
+        shift_start = (now - timedelta(days=1)).replace(hour=6, minute=0, second=0, microsecond=0)
+        
     active_count = 0
     idle_count = 0
     
@@ -56,7 +78,7 @@ def calculate_24h_stats(hostname, data):
         try:
             t = datetime.strptime(entry["timestamp"], "%Y-%m-%d %I:%M:%S %p")
             t = IST.localize(t)
-            if t >= cutoff:
+            if t >= shift_start:
                 if entry.get("status") == "Active":
                     active_count += 1
                 else:
@@ -64,7 +86,6 @@ def calculate_24h_stats(hostname, data):
         except Exception:
             pass
             
-    # Each ping is recorded every 30 seconds (0.5 mins)
     active_hours = round((active_count * 0.5) / 60, 1)
     idle_hours = round((idle_count * 0.5) / 60, 1)
     return active_hours, idle_hours
@@ -96,6 +117,8 @@ def dashboard():
     if not session.get("logged_in"):
         return redirect(url_for("login"))
     data = load_data()
+    cleanup_old_history(data)
+    save_data(data)
     
     systems = data.get("systems", {})
     now_ist = datetime.now(IST)
@@ -106,13 +129,13 @@ def dashboard():
             last_time = IST.localize(last_time)
             user_idle = sys_info.get("user_idle", False)
             
-            # Mark Offline/Idle if last ping > 90 sec or user idle > 2 mins
+            # Offline/Idle if no ping > 90s or user inactive > 2 mins
             if (now_ist - last_time).total_seconds() > 90 or user_idle:
                 sys_info["agent_status"] = "Offline / Idle"
             else:
                 sys_info["agent_status"] = "Active"
                 
-            active_h, idle_h = calculate_24h_stats(host, data)
+            active_h, idle_h = calculate_shift_stats(host, data)
             sys_info["work_hours_24h"] = f"{active_h} hrs Active / {idle_h} hrs Idle"
         except Exception:
             sys_info["agent_status"] = "Offline / Idle"
@@ -130,9 +153,7 @@ def send_otp():
     session["reset_otp"] = otp
     phone = data.get("phone_number", "7055361662")
     
-    # Fast2SMS API Key (Aap apni Fast2SMS API Key yahan daal sakte ho)
-    api_key = "YOUR_FAST2SMS_API_KEY"
-    
+    api_key = "YOUR_FAST2SMS_API_KEY"  # Replace with Fast2SMS key
     try:
         url = "https://www.fast2sms.com/dev/bulkV2"
         payload = urllib.parse.urlencode({
@@ -145,7 +166,6 @@ def send_otp():
             'authorization': api_key,
             'Content-Type': 'application/x-www-form-urlencoded'
         })
-        
         with urllib.request.urlopen(req, timeout=5) as response:
             pass
     except Exception as e:
@@ -153,7 +173,7 @@ def send_otp():
         
     return jsonify({
         "status": "success", 
-        "message": f"OTP sent via SMS to +91-XXXXXX{phone[-4:]}!"
+        "message": f"OTP successfully sent via SMS to +91-XXXXXX{phone[-4:]}!"
     })
 
 @app.route("/reset-password", methods=["POST"])
@@ -195,6 +215,7 @@ def manage_blocked_domains():
 def system_ping():
     req_data = request.json or {}
     hostname = req_data.get("hostname")
+    username = req_data.get("username", "Unknown User")
     user_idle = req_data.get("user_idle", False)
     screenshot_status = req_data.get("screenshot_status", "Active Stream")
     
@@ -204,23 +225,25 @@ def system_ping():
     data = load_data()
     now_ist = get_ist_time()
     
+    full_identity = f"{hostname} ({username})"
     status_str = "Offline / Idle" if user_idle else "Active"
     
-    data["systems"][hostname] = {
+    data["systems"][full_identity] = {
         "hostname": hostname,
+        "username": username,
         "agent_status": status_str,
         "user_idle": user_idle,
-        "screenshot_status": "Paused (Idle)" if user_idle else screenshot_status,
+        "screenshot_status": "Idle / Error" if user_idle else screenshot_status,
         "last_active": now_ist
     }
     
     if "activity_logs" not in data:
         data["activity_logs"] = {}
-    if hostname not in data["activity_logs"]:
-        data["activity_logs"][hostname] = []
+    if full_identity not in data["activity_logs"]:
+        data["activity_logs"][full_identity] = []
         
-    data["activity_logs"][hostname].append({"timestamp": now_ist, "status": "Active" if not user_idle else "Idle"})
-    data["activity_logs"][hostname] = data["activity_logs"][hostname][-2880:]
+    data["activity_logs"][full_identity].append({"timestamp": now_ist, "status": "Active" if not user_idle else "Idle"})
+    data["activity_logs"][full_identity] = data["activity_logs"][full_identity][-5760:]
     
     save_data(data)
     return jsonify({"status": "acknowledged", "blocked_domains": data.get("blocked_domains", [])})
@@ -231,19 +254,22 @@ def system_history():
     if request.method == "POST":
         req = request.json or {}
         hostname = req.get("hostname")
+        username = req.get("username", "")
         url = req.get("url")
         timestamp = req.get("timestamp", get_ist_time())
         date_str = req.get("date", get_today_str())
         
-        if hostname and url:
+        full_identity = f"{hostname} ({username})" if username else hostname
+        
+        if full_identity and url:
             if "history" not in data:
                 data["history"] = {}
-            if hostname not in data["history"]:
-                data["history"][hostname] = {}
-            if date_str not in data["history"][hostname]:
-                data["history"][hostname][date_str] = []
+            if full_identity not in data["history"]:
+                data["history"][full_identity] = {}
+            if date_str not in data["history"][full_identity]:
+                data["history"][full_identity][date_str] = []
             
-            data["history"][hostname][date_str].append({"url": url, "timestamp": timestamp})
+            data["history"][full_identity][date_str].append({"url": url, "timestamp": timestamp})
             save_data(data)
         return jsonify({"status": "logged"})
         
