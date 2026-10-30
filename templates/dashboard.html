@@ -18,17 +18,17 @@
     </nav>
 
     <div class="container mt-4">
-        <!-- Connected Systems Table with Screenshot & Activity -->
+        <!-- Connected Systems & Shift Activity -->
         <div class="card shadow-sm mb-4">
-            <div class="card-header bg-primary text-white fw-bold">Connected Systems & 24H Activity Tracker</div>
+            <div class="card-header bg-primary text-white fw-bold">Connected Systems & 24H Shift Summary (6 AM - 6 AM)</div>
             <div class="card-body p-0">
                 <table class="table table-hover table-striped mb-0">
                     <thead class="table-dark">
                         <tr>
-                            <th>Hostname</th>
+                            <th>Hostname & User</th>
                             <th>Status</th>
                             <th>Screenshot Stream</th>
-                            <th>24H Active/Idle Summary</th>
+                            <th>Shift Active/Idle</th>
                             <th>Last Active (IST)</th>
                             <th>Actions</th>
                         </tr>
@@ -67,9 +67,12 @@
             </div>
         </div>
 
-        <!-- Domain Blocking Manager -->
+        <!-- Domain Blocking Manager with Search Box -->
         <div class="card shadow-sm">
-            <div class="card-header bg-danger text-white fw-bold">Domain Blocking Manager</div>
+            <div class="card-header bg-danger text-white fw-bold d-flex justify-content-between align-items-center">
+                <span>Domain Blocking Manager</span>
+                <input type="text" id="domainSearchInput" class="form-control form-control-sm w-25" placeholder="🔍 Search Blocked Domains..." onkeyup="filterBlockedDomains()">
+            </div>
             <div class="card-body">
                 <form id="blockForm" class="row g-3 mb-3">
                     <div class="col-8 col-md-10">
@@ -82,19 +85,19 @@
 
                 <ul class="list-group" id="blockedDomainsList">
                     {% for domain in blocked_domains %}
-                    <li class="list-group-item d-flex justify-content-between align-items-center">
-                        {{ domain }}
+                    <li class="list-group-item d-flex justify-content-between align-items-center domain-item">
+                        <span class="domain-text">{{ domain }}</span>
                         <button class="btn btn-sm btn-outline-danger" onclick="unblockDomain('{{ domain }}')">Unblock</button>
                     </li>
                     {% else %}
-                    <li class="list-group-item text-muted text-center">No domains currently blocked.</li>
+                    <li class="list-group-item text-muted text-center" id="noDomainsMsg">No domains currently blocked.</li>
                     {% endfor %}
                 </ul>
             </div>
         </div>
     </div>
 
-    <!-- Date-Wise History Modal -->
+    <!-- Date-Wise History Modal with Search Box -->
     <div class="modal fade" id="historyModal" tabindex="-1" aria-hidden="true">
         <div class="modal-dialog modal-lg modal-dialog-scrollable">
             <div class="modal-content">
@@ -103,10 +106,14 @@
                     <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal" aria-label="Close"></button>
                 </div>
                 <div class="modal-body p-3">
-                    <div class="row mb-3">
-                        <label class="col-sm-3 col-form-label fw-bold">Select Date:</label>
-                        <div class="col-sm-9">
+                    <div class="row mb-3 g-2">
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Select Date:</label>
                             <input type="date" id="historyDateSelect" class="form-control" onchange="loadDateHistory()">
+                        </div>
+                        <div class="col-sm-6">
+                            <label class="form-label fw-bold">Search History URL:</label>
+                            <input type="text" id="historySearchInput" class="form-control" placeholder="🔍 Type e.g. youtube, google..." onkeyup="filterHistoryTable()">
                         </div>
                     </div>
                     <table class="table table-striped mb-0">
@@ -156,12 +163,14 @@
     <script>
         let historyModalObj;
         let currentHost = '';
+        let fullHistoryCache = [];
 
         function viewHistory(hostname) {
             currentHost = hostname;
             document.getElementById('historyModalTitle').innerText = "Browsing History: " + hostname;
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('historyDateSelect').value = today;
+            document.getElementById('historySearchInput').value = '';
             
             historyModalObj = new bootstrap.Modal(document.getElementById('historyModal'));
             historyModalObj.show();
@@ -173,31 +182,56 @@
             fetch(`/api/system/history?hostname=${encodeURIComponent(currentHost)}&date=${selectedDate}`)
             .then(res => res.json())
             .then(data => {
-                const tbody = document.getElementById('historyTableBody');
-                tbody.innerHTML = '';
-                
-                if(!data.history || data.history.length === 0) {
-                    tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">No history logged for this date.</td></tr>';
-                    return;
+                fullHistoryCache = data.history || [];
+                renderHistoryTable(fullHistoryCache);
+            });
+        }
+
+        function renderHistoryTable(items) {
+            const tbody = document.getElementById('historyTableBody');
+            tbody.innerHTML = '';
+            
+            if(!items || items.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="2" class="text-center text-muted">No history found.</td></tr>';
+                return;
+            }
+
+            items.slice().reverse().forEach(item => {
+                const tr = document.createElement('tr');
+                let targetLink = item.url;
+                if (!item.url.startsWith('http://') && !item.url.startsWith('https://')) {
+                    targetLink = 'https://' + item.url;
                 }
 
-                data.history.slice().reverse().forEach(item => {
-                    const tr = document.createElement('tr');
-                    let targetLink = item.url;
-                    if (!item.url.startsWith('http://') && !item.url.startsWith('https://')) {
-                        targetLink = 'https://www.google.com/search?q=' + encodeURIComponent(item.url);
-                    }
+                tr.innerHTML = `
+                    <td style="word-break: break-all;">
+                        <a href="${targetLink}" target="_blank" class="text-decoration-none fw-semibold">
+                            ${item.url}
+                        </a>
+                    </td>
+                    <td><span class="badge bg-secondary">${item.timestamp}</span></td>
+                `;
+                tbody.appendChild(tr);
+            });
+        }
 
-                    tr.innerHTML = `
-                        <td style="word-break: break-all;">
-                            <a href="${targetLink}" target="_blank" class="text-decoration-none fw-semibold">
-                                ${item.url}
-                            </a>
-                        </td>
-                        <td><span class="badge bg-secondary">${item.timestamp}</span></td>
-                    `;
-                    tbody.appendChild(tr);
-                });
+        function filterHistoryTable() {
+            const query = document.getElementById('historySearchInput').value.toLowerCase();
+            const filtered = fullHistoryCache.filter(item => item.url.toLowerCase().includes(query));
+            renderHistoryTable(filtered);
+        }
+
+        function filterBlockedDomains() {
+            const query = document.getElementById('domainSearchInput').value.toLowerCase();
+            const items = document.querySelectorAll('.domain-item');
+            
+            items.forEach(item => {
+                const text = item.querySelector('.domain-text').innerText.toLowerCase();
+                if(text.includes(query)) {
+                    item.style.display = 'flex';
+                } else {
+                    item.style.display = 'none';
+                }
             });
         }
 
@@ -215,15 +249,7 @@
             .then(res => res.json())
             .then(data => {
                 if(data.status === 'success') {
-                    domainInput.value = '';
-                    const ul = document.getElementById('blockedDomainsList');
-                    if(ul.children[0] && ul.children[0].innerText.includes('No domains currently blocked')) {
-                        ul.innerHTML = '';
-                    }
-                    const li = document.createElement('li');
-                    li.className = 'list-group-item d-flex justify-content-between align-items-center';
-                    li.innerHTML = `${domain} <button class="btn btn-sm btn-outline-danger" onclick="unblockDomain('${domain}')">Unblock</button>`;
-                    ul.appendChild(li);
+                    location.reload();
                 }
             });
         });
