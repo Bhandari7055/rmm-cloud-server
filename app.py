@@ -34,7 +34,8 @@ def load_data():
         "admin_password": "admin",
         "phone_number": "7055361662",
         "history": {},
-        "activity_logs": {}
+        "activity_logs": {},
+        "target_wallpaper": ""
     }
 
 def save_data(data):
@@ -44,7 +45,6 @@ def save_data(data):
     except Exception as e:
         print(f"Error saving data: {e}")
 
-# Cleanup history older than 90 days (3 Months)
 def cleanup_old_history(data):
     now = datetime.now(IST)
     cutoff = now - timedelta(days=90)
@@ -60,12 +60,10 @@ def cleanup_old_history(data):
             except Exception:
                 pass
 
-# Calculate Work vs Idle Stats (6:00 AM to 5:59 AM Shift)
-def calculate_shift_stats(hostname, data):
-    logs = data.get("activity_logs", {}).get(hostname, [])
+def calculate_shift_stats(system_key, data):
+    logs = data.get("activity_logs", {}).get(system_key, [])
     now = datetime.now(IST)
     
-    # Calculate shift start time (Today 6:00 AM or Yesterday 6:00 AM)
     if now.hour >= 6:
         shift_start = now.replace(hour=6, minute=0, second=0, microsecond=0)
     else:
@@ -123,28 +121,60 @@ def dashboard():
     systems = data.get("systems", {})
     now_ist = datetime.now(IST)
     
-    for host, sys_info in systems.items():
+    for sys_key, sys_info in systems.items():
         try:
             last_time = datetime.strptime(sys_info["last_active"], "%Y-%m-%d %I:%M:%S %p")
             last_time = IST.localize(last_time)
             user_idle = sys_info.get("user_idle", False)
+            diff_seconds = (now_ist - last_time).total_seconds()
             
-            # Offline/Idle if no ping > 90s or user inactive > 2 mins
-            if (now_ist - last_time).total_seconds() > 90 or user_idle:
+            if diff_seconds >= 172800:
+                sys_info["agent_status"] = "2 Day Not Active System"
+            elif diff_seconds > 90 or user_idle:
                 sys_info["agent_status"] = "Offline / Idle"
             else:
                 sys_info["agent_status"] = "Active"
                 
-            active_h, idle_h = calculate_shift_stats(host, data)
+            active_h, idle_h = calculate_shift_stats(sys_key, data)
             sys_info["work_hours_24h"] = f"{active_h} hrs Active / {idle_h} hrs Idle"
         except Exception:
-            sys_info["agent_status"] = "Offline / Idle"
+            sys_info["agent_status"] = "2 Day Not Active System"
             sys_info["work_hours_24h"] = "0.0 hrs Active / 0.0 hrs Idle"
 
     return render_template("dashboard.html", 
                            blocked_domains=data.get("blocked_domains", []), 
                            systems=systems,
+                           target_wallpaper=data.get("target_wallpaper", ""),
                            phone_number=data.get("phone_number", "7055361662"))
+
+@app.route("/api/set-wallpaper", methods=["POST"])
+def set_wallpaper():
+    if not session.get("logged_in"):
+        return jsonify({"error": "Unauthorized"}), 401
+    req = request.json or {}
+    wallpaper_url = req.get("wallpaper_url", "").strip()
+    data = load_data()
+    data["target_wallpaper"] = wallpaper_url
+    save_data(data)
+    return jsonify({"status": "success", "wallpaper_url": wallpaper_url})
+
+@app.route("/api/system/delete", methods=["POST"])
+def delete_system():
+    if not session.get("logged_in"):
+        return jsonify({"error": "Unauthorized"}), 401
+    req = request.json or {}
+    sys_key = req.get("system_key")
+    if sys_key:
+        data = load_data()
+        if sys_key in data.get("systems", {}):
+            del data["systems"][sys_key]
+        if sys_key in data.get("activity_logs", {}):
+            del data["activity_logs"][sys_key]
+        if sys_key in data.get("history", {}):
+            del data["history"][sys_key]
+        save_data(data)
+        return jsonify({"status": "success", "message": f"{sys_key} removed"})
+    return jsonify({"error": "Invalid request"}), 400
 
 @app.route("/send-otp", methods=["POST"])
 def send_otp():
@@ -153,7 +183,7 @@ def send_otp():
     session["reset_otp"] = otp
     phone = data.get("phone_number", "7055361662")
     
-    api_key = "YOUR_FAST2SMS_API_KEY"  # Replace with Fast2SMS key
+    api_key = "YOUR_FAST2SMS_API_KEY"  # Replace with actual Fast2SMS Key
     try:
         url = "https://www.fast2sms.com/dev/bulkV2"
         payload = urllib.parse.urlencode({
@@ -214,10 +244,10 @@ def manage_blocked_domains():
 @app.route("/api/system/ping", methods=["POST"])
 def system_ping():
     req_data = request.json or {}
-    hostname = req_data.get("hostname")
-    username = req_data.get("username", "Unknown User")
+    hostname = req_data.get("hostname", "Unknown")
+    username = req_data.get("username", "User")
+    ip_address = req_data.get("ip_address", request.remote_addr)
     user_idle = req_data.get("user_idle", False)
-    screenshot_status = req_data.get("screenshot_status", "Active Stream")
     
     if not hostname:
         return jsonify({"error": "Hostname required"}), 400
@@ -225,28 +255,34 @@ def system_ping():
     data = load_data()
     now_ist = get_ist_time()
     
-    full_identity = f"{hostname} ({username})"
+    # Key created per user: "DESKTOP-ABC \ bharat"
+    system_key = f"{hostname} \\ {username}"
     status_str = "Offline / Idle" if user_idle else "Active"
     
-    data["systems"][full_identity] = {
+    data["systems"][system_key] = {
         "hostname": hostname,
         "username": username,
+        "ip_address": ip_address,
         "agent_status": status_str,
         "user_idle": user_idle,
-        "screenshot_status": "Idle / Error" if user_idle else screenshot_status,
+        "screenshot_status": "Idle / Error" if user_idle else "Active Stream",
         "last_active": now_ist
     }
     
     if "activity_logs" not in data:
         data["activity_logs"] = {}
-    if full_identity not in data["activity_logs"]:
-        data["activity_logs"][full_identity] = []
+    if system_key not in data["activity_logs"]:
+        data["activity_logs"][system_key] = []
         
-    data["activity_logs"][full_identity].append({"timestamp": now_ist, "status": "Active" if not user_idle else "Idle"})
-    data["activity_logs"][full_identity] = data["activity_logs"][full_identity][-5760:]
+    data["activity_logs"][system_key].append({"timestamp": now_ist, "status": "Active" if not user_idle else "Idle"})
+    data["activity_logs"][system_key] = data["activity_logs"][system_key][-5760:]
     
     save_data(data)
-    return jsonify({"status": "acknowledged", "blocked_domains": data.get("blocked_domains", [])})
+    return jsonify({
+        "status": "acknowledged", 
+        "blocked_domains": data.get("blocked_domains", []),
+        "target_wallpaper": data.get("target_wallpaper", "")
+    })
 
 @app.route("/api/system/history", methods=["GET", "POST"])
 def system_history():
@@ -254,31 +290,31 @@ def system_history():
     if request.method == "POST":
         req = request.json or {}
         hostname = req.get("hostname")
-        username = req.get("username", "")
+        username = req.get("username", "User")
         url = req.get("url")
         timestamp = req.get("timestamp", get_ist_time())
         date_str = req.get("date", get_today_str())
         
-        full_identity = f"{hostname} ({username})" if username else hostname
+        system_key = f"{hostname} \\ {username}"
         
-        if full_identity and url:
+        if system_key and url:
             if "history" not in data:
                 data["history"] = {}
-            if full_identity not in data["history"]:
-                data["history"][full_identity] = {}
-            if date_str not in data["history"][full_identity]:
-                data["history"][full_identity][date_str] = []
+            if system_key not in data["history"]:
+                data["history"][system_key] = {}
+            if date_str not in data["history"][system_key]:
+                data["history"][system_key][date_str] = []
             
-            data["history"][full_identity][date_str].append({"url": url, "timestamp": timestamp})
+            data["history"][system_key][date_str].append({"url": url, "timestamp": timestamp})
             save_data(data)
         return jsonify({"status": "logged"})
         
     elif request.method == "GET":
-        hostname = request.args.get("hostname")
+        system_key = request.args.get("hostname")
         selected_date = request.args.get("date", get_today_str())
-        if hostname:
-            host_hist = data.get("history", {}).get(hostname, {})
-            return jsonify({"hostname": hostname, "date": selected_date, "history": host_hist.get(selected_date, [])})
+        if system_key:
+            host_hist = data.get("history", {}).get(system_key, {})
+            return jsonify({"hostname": system_key, "date": selected_date, "history": host_hist.get(selected_date, [])})
         return jsonify({"history": data.get("history", {})})
 
 if __name__ == "__main__":
