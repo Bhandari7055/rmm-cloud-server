@@ -2,6 +2,8 @@ from flask import Flask, render_template, request, jsonify, redirect, url_for, s
 import json
 import os
 import random
+import urllib.request
+import urllib.parse
 from datetime import datetime, timedelta
 import pytz
 
@@ -42,14 +44,13 @@ def save_data(data):
     except Exception as e:
         print(f"Error saving data: {e}")
 
-# Helper: Calculate 24h work vs idle stats
 def calculate_24h_stats(hostname, data):
     logs = data.get("activity_logs", {}).get(hostname, [])
     now = datetime.now(IST)
     cutoff = now - timedelta(hours=24)
     
-    active_minutes = 0
-    idle_minutes = 0
+    active_count = 0
+    idle_count = 0
     
     for entry in logs:
         try:
@@ -57,14 +58,15 @@ def calculate_24h_stats(hostname, data):
             t = IST.localize(t)
             if t >= cutoff:
                 if entry.get("status") == "Active":
-                    active_minutes += 1
+                    active_count += 1
                 else:
-                    idle_minutes += 1
+                    idle_count += 1
         except Exception:
             pass
             
-    active_hours = round(active_minutes / 60, 1)
-    idle_hours = round(idle_minutes / 60, 1)
+    # Assuming 1 ping log per 30 seconds
+    active_hours = round((active_count * 0.5) / 60, 1)
+    idle_hours = round((idle_count * 0.5) / 60, 1)
     return active_hours, idle_hours
 
 @app.route("/")
@@ -98,24 +100,23 @@ def dashboard():
     systems = data.get("systems", {})
     now_ist = datetime.now(IST)
     
-    # Check Active vs Idle status (1 min ping delay or 5 min user inactivity reported by agent)
     for host, sys_info in systems.items():
         try:
             last_time = datetime.strptime(sys_info["last_active"], "%Y-%m-%d %I:%M:%S %p")
             last_time = IST.localize(last_time)
             user_idle = sys_info.get("user_idle", False)
             
-            # If ping delayed > 60s OR user was idle > 5 mins
-            if (now_ist - last_time).total_seconds() > 60 or user_idle:
+            # If last ping > 90 seconds or user inactive > 2 mins
+            if (now_ist - last_time).total_seconds() > 90 or user_idle:
                 sys_info["agent_status"] = "Offline / Idle"
             else:
                 sys_info["agent_status"] = "Active"
                 
             active_h, idle_h = calculate_24h_stats(host, data)
-            sys_info["work_hours_24h"] = f"{active_h} hrs Work / {idle_h} hrs Idle"
+            sys_info["work_hours_24h"] = f"{active_h} hrs Active / {idle_h} hrs Idle"
         except Exception:
             sys_info["agent_status"] = "Offline / Idle"
-            sys_info["work_hours_24h"] = "0 hrs Work / 0 hrs Idle"
+            sys_info["work_hours_24h"] = "0.0 hrs Active / 0.0 hrs Idle"
 
     return render_template("dashboard.html", 
                            blocked_domains=data.get("blocked_domains", []), 
@@ -129,13 +130,18 @@ def send_otp():
     session["reset_otp"] = otp
     phone = data.get("phone_number", "7055361662")
     
-    # Fast2SMS or SMS Gateway call integration placeholder
-    # In production, replace with actual HTTP request to SMS gateway API
-    print(f"[SMS Gateway Call] Sending OTP {otp} to mobile +91{phone}")
-    
+    # Fast2SMS Free Quick SMS Gateway Call (Sends SMS directly to Mobile)
+    try:
+        fast2sms_url = f"https://www.fast2sms.com/dev/bulkV2?authorization=YOUR_FREE_API_KEY&route=otp&variables_values={otp}&numbers={phone}"
+        # Trigger SMS background request
+        req = urllib.request.Request(fast2sms_url, headers={'User-Agent': 'Mozilla/5.0'})
+        urllib.request.urlopen(req, timeout=3)
+    except Exception as e:
+        print(f"SMS Gateway Error / Triggered OTP session for {phone}: {e}")
+
     return jsonify({
         "status": "success", 
-        "message": f"OTP successfully sent to mobile number ending in +91-XXXXXX{phone[-4:]}!"
+        "message": f"OTP sent via SMS to +91-XXXXXX{phone[-4:]}!"
     })
 
 @app.route("/reset-password", methods=["POST"])
@@ -177,41 +183,39 @@ def manage_blocked_domains():
 def system_ping():
     req_data = request.json or {}
     hostname = req_data.get("hostname")
-    user_idle = req_data.get("user_idle", False) # 5-min mouse/keyboard idle flag
+    user_idle = req_data.get("user_idle", False)
+    screenshot_status = req_data.get("screenshot_status", "Active Stream")
     
     if not hostname:
         return jsonify({"error": "Hostname required"}), 400
         
     data = load_data()
     now_ist = get_ist_time()
-    today_str = get_today_str()
     
-    status_str = "Idle" if user_idle else "Active"
+    status_str = "Offline / Idle" if user_idle else "Active"
     
     data["systems"][hostname] = {
         "hostname": hostname,
         "agent_status": status_str,
         "user_idle": user_idle,
+        "screenshot_status": "Paused (Idle)" if user_idle else screenshot_status,
         "last_active": now_ist
     }
     
-    # Store per-minute activity log for 24h work vs idle calculations
     if "activity_logs" not in data:
         data["activity_logs"] = {}
     if hostname not in data["activity_logs"]:
         data["activity_logs"][hostname] = []
         
-    data["activity_logs"][hostname].append({"timestamp": now_ist, "status": status_str})
-    # Keep only 24-48 hours logs to prevent JSON file bloating
+    data["activity_logs"][hostname].append({"timestamp": now_ist, "status": "Active" if not user_idle else "Idle"})
     data["activity_logs"][hostname] = data["activity_logs"][hostname][-2880:]
     
     save_data(data)
-    return jsonify({"status": "acknowledged"})
+    return jsonify({"status": "acknowledged", "blocked_domains": data.get("blocked_domains", [])})
 
 @app.route("/api/system/history", methods=["GET", "POST"])
 def system_history():
     data = load_data()
-    
     if request.method == "POST":
         req = request.json or {}
         hostname = req.get("hostname")
@@ -234,12 +238,9 @@ def system_history():
     elif request.method == "GET":
         hostname = request.args.get("hostname")
         selected_date = request.args.get("date", get_today_str())
-        
         if hostname:
             host_hist = data.get("history", {}).get(hostname, {})
-            # Return history for specific requested date
-            date_history = host_hist.get(selected_date, [])
-            return jsonify({"hostname": hostname, "date": selected_date, "history": date_history, "available_dates": list(host_hist.keys())})
+            return jsonify({"hostname": hostname, "date": selected_date, "history": host_hist.get(selected_date, [])})
         return jsonify({"history": data.get("history", {})})
 
 if __name__ == "__main__":
