@@ -15,6 +15,7 @@ IST = pytz.timezone('Asia/Kolkata')
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
 
+# --- Database Models ---
 class SystemDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(100), unique=True, nullable=False)
@@ -26,12 +27,20 @@ class SystemDevice(db.Model):
     last_seen = db.Column(db.String(50))
     is_removed = db.Column(db.Boolean, default=False)
 
+class SystemConfig(db.Model):
+    id = db.Column(db.Integer, primary_key=True)
+    admin_phone = db.Column(db.String(20), default="XXXXXXXX62")
+
 with app.app_context():
     try:
         db.create_all()
+        if not SystemConfig.query.first():
+            db.session.add(SystemConfig(admin_phone="XXXXXXXX62"))
+            db.session.commit()
     except Exception as e:
-        print(f"DB Init Warning: {e}")
+        print(f"DB Init Exception: {e}")
 
+# --- Routes ---
 @app.route('/')
 def home():
     return redirect(url_for('dashboard'))
@@ -40,9 +49,12 @@ def home():
 def dashboard():
     try:
         devices = SystemDevice.query.filter_by(is_removed=False).all()
-        return render_template('dashboard.html', devices=devices)
+        config = SystemConfig.query.first()
+        phone_no = config.admin_phone if config else "1662"
+        
+        # Template ko expected variables pass kiye ja rahe hain
+        return render_template('dashboard.html', devices=devices, phone_number=phone_no)
     except Exception as e:
-        # Fallback render if DB is empty or rendering template
         return f"Dashboard Error: {str(e)}", 500
 
 @app.route('/api/agent/heartbeat', methods=['POST'])
