@@ -17,7 +17,8 @@ IST = pytz.timezone('Asia/Kolkata')
 
 # ----------------- GMAIL CONFIGURATION -----------------
 GMAIL_USER = "Bhandaribharat216@gmail.com"
-GMAIL_APP_PASSWORD = "jboi lrfw ynbm wfmk".replace(" ", "")  # Spaces remove ho jayenge
+# Naya App Password: oton fckj gfpn dtfs (Spaces removed)
+GMAIL_APP_PASSWORD = "otonfckjgfpndtfs" 
 # --------------------------------------------------------
 
 def get_ist_now():
@@ -57,28 +58,30 @@ def home():
 def dashboard():
     try:
         devices = SystemDevice.query.filter_by(is_removed=False).all()
-        # Modal me error avoid karne ke liye pass kiya gaya
         return render_template('dashboard.html', devices=devices, phone_number=GMAIL_USER)
     except Exception as e:
         return f"Dashboard Error: {str(e)}", 500
 
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
-    otp = str(random.randint(100000, 999999))
-    session['reset_otp'] = otp
-    
-    msg = MIMEText(f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke sath share na karein.")
-    msg['Subject'] = 'Galaxy RMM Admin Password Reset OTP'
-    msg['From'] = GMAIL_USER
-    msg['To'] = GMAIL_USER
-
     try:
-        with smtplib.SMTP_SSL('smtp.gmail.com', 465) as server:
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, [GMAIL_USER], msg.as_string())
-        return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}'})
+        otp = str(random.randint(100000, 999999))
+        session['reset_otp'] = otp
+        
+        msg = MIMEText(f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke sath share na karein.")
+        msg['Subject'] = 'Galaxy RMM Admin Password Reset OTP'
+        msg['From'] = GMAIL_USER
+        msg['To'] = GMAIL_USER
+
+        server = smtplib.SMTP_SSL('smtp.gmail.com', 465, timeout=10)
+        server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+        server.sendmail(GMAIL_USER, [GMAIL_USER], msg.as_string())
+        server.quit()
+
+        return jsonify({'status': 'success', 'message': f'OTP sent successfully to {GMAIL_USER}'})
+
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'SMTP Error: {str(e)}'}), 500
+        return jsonify({'status': 'error', 'message': f'Gmail Send Failed: {str(e)}'}), 200
 
 @app.route('/verify-otp-reset-password', methods=['POST'])
 def verify_otp_reset():
