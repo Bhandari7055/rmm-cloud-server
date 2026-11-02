@@ -65,7 +65,11 @@ def login():
 
     if session.get('logged_in'):
         return redirect(url_for('dashboard'))
-    return render_template('dashboard.html', page="login", phone_number=GMAIL_USER)
+    
+    try:
+        return render_template('dashboard.html', page="login", phone_number=GMAIL_USER)
+    except Exception as e:
+        return f"Template Render Error on Login: {str(e)}", 500
 
 @app.route('/logout')
 def logout():
@@ -81,7 +85,7 @@ def dashboard():
         devices = SystemDevice.query.filter_by(is_removed=False).all()
         return render_template('dashboard.html', page="dashboard", devices=devices, phone_number=GMAIL_USER)
     except Exception as e:
-        return f"Dashboard Error: {str(e)}", 500
+        return f"Dashboard Render Error: {str(e)}", 500
 
 @app.route('/send-otp', methods=['POST'])
 def send_otp():
