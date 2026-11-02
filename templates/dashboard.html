@@ -51,7 +51,7 @@
 <div class="container-fluid my-4">
     <div class="card shadow-sm">
         <div class="card-header bg-primary text-white d-flex justify-content-between align-items-center">
-            <h5 class="m-0">Monitored Endpoints ({{ devices|length }})</h5>
+            <h5 class="m-0">Monitored Endpoints</h5>
             <span class="badge bg-light text-primary">Live Sync</span>
         </div>
         <div class="card-body p-0">
@@ -69,21 +69,23 @@
                     </tr>
                 </thead>
                 <tbody>
-                    {% for dev in devices %}
-                    <tr>
-                        <td>{{ loop.index }}</td>
-                        <td><code>{{ dev.device_id }}</code></td>
-                        <td><strong>{{ dev.hostname }}</strong></td>
-                        <td>{{ dev.username }}</td>
-                        <td>{{ dev.local_ip }}</td>
-                        <td>{{ dev.tailscale_ip }}</td>
-                        <td><span class="badge bg-success">{{ dev.status }}</span></td>
-                        <td>{{ dev.last_seen }}</td>
-                    </tr>
+                    {% if devices %}
+                        {% for dev in devices %}
+                        <tr>
+                            <td>{{ loop.index }}</td>
+                            <td><code>{{ dev.device_id }}</code></td>
+                            <td><strong>{{ dev.hostname }}</strong></td>
+                            <td>{{ dev.username }}</td>
+                            <td>{{ dev.local_ip }}</td>
+                            <td>{{ dev.tailscale_ip }}</td>
+                            <td><span class="badge bg-success">{{ dev.status }}</span></td>
+                            <td>{{ dev.last_seen }}</td>
+                        </tr>
+                        {% endfor %}
                     {% else %}
-                    <tr>
-                        <td colspan="8" class="text-center text-muted p-4">No active agents connected yet.</td>
-                    </tr>
+                        <tr>
+                            <td colspan="8" class="text-center text-muted p-4">No active agents connected yet.</td>
+                        </tr>
                     {% endif %}
                 </tbody>
             </table>
