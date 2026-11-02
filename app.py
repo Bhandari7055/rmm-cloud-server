@@ -14,10 +14,8 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 IST = pytz.timezone('Asia/Kolkata')
 
-# ----------------- GMAIL CONFIGURATION -----------------
 GMAIL_USER = "Bhandaribharat216@gmail.com"
 GMAIL_APP_PASSWORD = "otonfckjgfpndtfs"
-# --------------------------------------------------------
 
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
@@ -48,13 +46,40 @@ with app.app_context():
 
 @app.route('/')
 def home():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
     return redirect(url_for('dashboard'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        data = request.json or {}
+        password = data.get('password')
+        config = SystemConfig.query.first()
+        admin_pass = config.admin_password if config else "Bhandari"
+
+        if password == admin_pass:
+            session['logged_in'] = True
+            return jsonify({'status': 'success', 'message': 'Login successful!'})
+        return jsonify({'status': 'error', 'message': 'Invalid Password'}), 401
+
+    if session.get('logged_in'):
+        return redirect(url_for('dashboard'))
+    return render_template('dashboard.html', page="login", phone_number=GMAIL_USER)
+
+@app.route('/logout')
+def logout():
+    session.pop('logged_in', None)
+    return redirect(url_for('login'))
 
 @app.route('/dashboard')
 def dashboard():
+    if not session.get('logged_in'):
+        return redirect(url_for('login'))
+    
     try:
         devices = SystemDevice.query.filter_by(is_removed=False).all()
-        return render_template('dashboard.html', devices=devices, phone_number=GMAIL_USER)
+        return render_template('dashboard.html', page="dashboard", devices=devices, phone_number=GMAIL_USER)
     except Exception as e:
         return f"Dashboard Error: {str(e)}", 500
 
