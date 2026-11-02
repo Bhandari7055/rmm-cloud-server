@@ -15,7 +15,6 @@ IST = pytz.timezone('Asia/Kolkata')
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
 
-# --- Models ---
 class SystemDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(100), unique=True, nullable=False)
@@ -28,17 +27,23 @@ class SystemDevice(db.Model):
     is_removed = db.Column(db.Boolean, default=False)
 
 with app.app_context():
-    db.create_all()
+    try:
+        db.create_all()
+    except Exception as e:
+        print(f"DB Init Warning: {e}")
 
-# --- Routes ---
 @app.route('/')
 def home():
     return redirect(url_for('dashboard'))
 
 @app.route('/dashboard')
 def dashboard():
-    devices = SystemDevice.query.filter_by(is_removed=False).all()
-    return render_template('dashboard.html', devices=devices)
+    try:
+        devices = SystemDevice.query.filter_by(is_removed=False).all()
+        return render_template('dashboard.html', devices=devices)
+    except Exception as e:
+        # Fallback render if DB is empty or rendering template
+        return f"Dashboard Error: {str(e)}", 500
 
 @app.route('/api/agent/heartbeat', methods=['POST'])
 def agent_heartbeat():
