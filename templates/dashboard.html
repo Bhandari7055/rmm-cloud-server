@@ -150,7 +150,11 @@ function sendGmailOTP() {
     fetch('/send-otp', { method: 'POST', headers: { 'Content-Type': 'application/json' } })
     .then(res => res.json())
     .then(data => {
-        alert(data.message);
+        if(data.status === 'success') {
+            alert(data.message);
+        } else {
+            alert(data.message);
+        }
         if(btn) { btn.disabled = false; btn.innerText = "📩 Resend Gmail OTP"; }
     })
     .catch(err => {
