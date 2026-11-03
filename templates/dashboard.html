@@ -61,6 +61,7 @@
                         <th>Local IP</th>
                         <th>Tailscale IP</th>
                         <th>URL History</th>
+                        <th>Screenshots</th>
                         <th>Status</th>
                         <th>Last Seen (IST)</th>
                     </tr>
@@ -80,13 +81,18 @@
                                     {{ dev.history_count if dev.history_count else 0 }} URLs
                                 </span>
                             </td>
+                            <td>
+                                <span class="badge bg-warning text-dark font-weight-bold">
+                                    📸 {{ dev.screenshot_count if dev.screenshot_count else 0 }} Saved
+                                </span>
+                            </td>
                             <td><span class="badge bg-success">{{ dev.status }}</span></td>
                             <td>{{ dev.last_seen }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="9" class="text-center text-muted p-4">No active agents connected yet.</td>
+                            <td colspan="10" class="text-center text-muted p-4">No active agents connected yet.</td>
                         </tr>
                     {% endif %}
                 </tbody>
