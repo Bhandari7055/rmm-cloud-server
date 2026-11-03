@@ -1,6 +1,8 @@
 import os
 import random
-import requests
+import smtplib
+import socket
+from email.mime.text import MIMEText
 from datetime import datetime
 import pytz
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
@@ -15,6 +17,7 @@ db = SQLAlchemy(app)
 IST = pytz.timezone('Asia/Kolkata')
 
 GMAIL_USER = "Bhandaribharat216@gmail.com"
+GMAIL_APP_PASSWORD = "otonfckjgfpndtfs"
 
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
@@ -94,27 +97,34 @@ def send_otp():
         otp = str(random.randint(100000, 999999))
         session['reset_otp'] = otp
         
-        # Webhook Service Relay to bypass network port block
-        url = "https://api.elasticemail.com/v2/email/send"
-        params = {
-            "apikey": "0602F835F52296EDDCE07F9E27EA755F5FFD704CD824BA852085A827E51BD1DF1ED9FEFF01E9C2B81F2770D1EF56360E",
-            "subject": "Galaxy RMM Admin Password Reset OTP",
-            "from": GMAIL_USER,
-            "to": GMAIL_USER,
-            "bodyHtml": f"<h3>Galaxy IT Monitor Pro</h3><p>Aapka Password Reset OTP hai: <b>{otp}</b></p>",
-            "isTransactional": True
-        }
+        msg = MIMEText(f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke saath share na karein.")
+        msg['Subject'] = 'Galaxy RMM Admin Password Reset OTP'
+        msg['From'] = GMAIL_USER
+        msg['To'] = GMAIL_USER
+
+        # Force IPv4 socket resolution to prevent Render timeouts
+        original_getaddrinfo = socket.getaddrinfo
+        def getaddrinfo_ipv4(*args, **kwargs):
+            res = original_getaddrinfo(*args, **kwargs)
+            return [r for r in res if r[0] == socket.AF_INET]
+            
+        socket.getaddrinfo = getaddrinfo_ipv4
         
-        res = requests.post(url, data=params, timeout=10)
-        
-        if res.status_code == 200 and '"success":true' in res.text.lower():
-            return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}'})
-        else:
-            # Safe Fallback to complete reset flow
-            return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}'})
+        try:
+            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=12)
+            server.ehlo()
+            server.starttls()
+            server.ehlo()
+            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
+            server.sendmail(GMAIL_USER, [GMAIL_USER], msg.as_string())
+            server.quit()
+        finally:
+            socket.getaddrinfo = original_getaddrinfo
+
+        return jsonify({'status': 'success', 'message': f'OTP successfully sent directly to {GMAIL_USER}!'})
 
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Send Error: {str(e)}'}), 200
+        return jsonify({'status': 'error', 'message': f'Gmail Connection Failed: {str(e)}'}), 200
 
 @app.route('/verify-otp-reset-password', methods=['POST'])
 def verify_otp_reset():
