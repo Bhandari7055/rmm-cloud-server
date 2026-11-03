@@ -29,6 +29,8 @@ class SystemDevice(db.Model):
     tailscale_ip = db.Column(db.String(50))
     status = db.Column(db.String(20), default="Active")
     last_seen = db.Column(db.String(50))
+    history_count = db.Column(db.Integer, default=0) # URL History Total Count
+    last_history_sync = db.Column(db.String(50), default="N/A") # History Sync Time
     is_removed = db.Column(db.Boolean, default=False)
 
 class SystemConfig(db.Model):
@@ -94,7 +96,6 @@ def send_otp():
         otp = str(random.randint(100000, 999999))
         session['reset_otp'] = otp
         
-        # Aapka Formspree Webhook URL
         formspree_url = "https://formspree.io/f/xwllwdwo"
         
         payload = {
@@ -149,12 +150,20 @@ def agent_heartbeat():
             hostname=data.get("hostname", "Unknown"),
             username=data.get("username", "User"),
             local_ip=data.get("local_ip", request.remote_addr),
-            tailscale_ip=data.get("tailscale_ip", "N/A")
+            tailscale_ip=data.get("tailscale_ip", "N/A"),
+            history_count=data.get("history_count", 0),
+            last_history_sync=now_str if data.get("history_count") else "N/A"
         )
         db.session.add(device)
 
     device.status = "Active"
     device.last_seen = now_str
+    
+    # Update URL History count if sent by agent
+    if "history_count" in data:
+        device.history_count = data.get("history_count", 0)
+        device.last_history_sync = now_str
+
     db.session.commit()
     return jsonify({"status": "success", "server_time_ist": now_str})
 
