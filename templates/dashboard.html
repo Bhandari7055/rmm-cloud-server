@@ -51,7 +51,7 @@
             <span class="badge bg-light text-primary">Live Sync</span>
         </div>
         <div class="card-body p-0">
-            <table class="table table-hover table-striped m-0">
+            <table class="table table-hover table-striped m-0 align-middle">
                 <thead class="table-dark">
                     <tr>
                         <th>#</th>
@@ -60,6 +60,7 @@
                         <th>User</th>
                         <th>Local IP</th>
                         <th>Tailscale IP</th>
+                        <th>URL History</th>
                         <th>Status</th>
                         <th>Last Seen (IST)</th>
                     </tr>
@@ -74,13 +75,18 @@
                             <td>{{ dev.username }}</td>
                             <td>{{ dev.local_ip }}</td>
                             <td>{{ dev.tailscale_ip }}</td>
+                            <td>
+                                <span class="badge bg-info text-dark font-weight-bold">
+                                    {{ dev.history_count if dev.history_count else 0 }} URLs
+                                </span>
+                            </td>
                             <td><span class="badge bg-success">{{ dev.status }}</span></td>
                             <td>{{ dev.last_seen }}</td>
                         </tr>
                         {% endfor %}
                     {% else %}
                         <tr>
-                            <td colspan="8" class="text-center text-muted p-4">No active agents connected yet.</td>
+                            <td colspan="9" class="text-center text-muted p-4">No active agents connected yet.</td>
                         </tr>
                     {% endif %}
                 </tbody>
