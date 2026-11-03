@@ -1,8 +1,6 @@
 import os
 import random
-import smtplib
-import socket
-from email.mime.text import MIMEText
+import requests
 from datetime import datetime
 import pytz
 from flask import Flask, render_template, request, jsonify, session, redirect, url_for
@@ -17,7 +15,6 @@ db = SQLAlchemy(app)
 IST = pytz.timezone('Asia/Kolkata')
 
 GMAIL_USER = "Bhandaribharat216@gmail.com"
-GMAIL_APP_PASSWORD = "otonfckjgfpndtfs"
 
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
@@ -97,34 +94,24 @@ def send_otp():
         otp = str(random.randint(100000, 999999))
         session['reset_otp'] = otp
         
-        msg = MIMEText(f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke saath share na karein.")
-        msg['Subject'] = 'Galaxy RMM Admin Password Reset OTP'
-        msg['From'] = GMAIL_USER
-        msg['To'] = GMAIL_USER
-
-        # Force IPv4 socket resolution to prevent Render timeouts
-        original_getaddrinfo = socket.getaddrinfo
-        def getaddrinfo_ipv4(*args, **kwargs):
-            res = original_getaddrinfo(*args, **kwargs)
-            return [r for r in res if r[0] == socket.AF_INET]
-            
-        socket.getaddrinfo = getaddrinfo_ipv4
+        # Aapka Formspree Webhook URL
+        formspree_url = "https://formspree.io/f/xwllwdwo"
         
-        try:
-            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=12)
-            server.ehlo()
-            server.starttls()
-            server.ehlo()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, [GMAIL_USER], msg.as_string())
-            server.quit()
-        finally:
-            socket.getaddrinfo = original_getaddrinfo
-
-        return jsonify({'status': 'success', 'message': f'OTP successfully sent directly to {GMAIL_USER}!'})
+        payload = {
+            "_subject": "Galaxy RMM Admin Password Reset OTP",
+            "email": GMAIL_USER,
+            "message": f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke saath share na karein."
+        }
+        
+        res = requests.post(formspree_url, data=payload, timeout=10)
+        
+        if res.status_code in [200, 202]:
+            return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}!'})
+        else:
+            return jsonify({'status': 'error', 'message': 'Formspree Delivery Failed'}), 200
 
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Gmail Connection Failed: {str(e)}'}), 200
+        return jsonify({'status': 'error', 'message': f'Send Failed: {str(e)}'}), 200
 
 @app.route('/verify-otp-reset-password', methods=['POST'])
 def verify_otp_reset():
