@@ -2,3 +2,4 @@ flask
 gunicorn
 pytz
 flask-sqlalchemy
+requests
