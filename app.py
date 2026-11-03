@@ -38,12 +38,19 @@ class SystemDevice(db.Model):
 class SystemConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     admin_password = db.Column(db.String(100), default="Bhandari")
+    blocked_domains = db.Column(db.Text, default="facebook,instagram,twitter")  # Comma separated domains
+    wallpaper_url = db.Column(db.Text, default="")  # Active wallpaper URL to deploy
 
 with app.app_context():
     try:
         db.create_all()
-        if not SystemConfig.query.first():
-            db.session.add(SystemConfig(admin_password="Bhandari"))
+        config = SystemConfig.query.first()
+        if not config:
+            db.session.add(SystemConfig(
+                admin_password="Bhandari",
+                blocked_domains="facebook,instagram,twitter",
+                wallpaper_url=""
+            ))
             db.session.commit()
     except Exception as e:
         print(f"DB Init Exception: {e}")
@@ -88,7 +95,15 @@ def dashboard():
     
     try:
         devices = SystemDevice.query.filter_by(is_removed=False).all()
-        return render_template('dashboard.html', page="dashboard", devices=devices, phone_number=GMAIL_USER)
+        config = SystemConfig.query.first()
+        return render_template(
+            'dashboard.html', 
+            page="dashboard", 
+            devices=devices, 
+            phone_number=GMAIL_USER,
+            blocked_domains=config.blocked_domains if config else "",
+            wallpaper_url=config.wallpaper_url if config else ""
+        )
     except Exception as e:
         return f"Dashboard Render Error: {str(e)}", 500
 
@@ -134,6 +149,27 @@ def verify_otp_reset():
         return jsonify({'status': 'success', 'message': 'Password changed successfully!'})
     return jsonify({'status': 'error', 'message': 'System error'}), 500
 
+# --- Admin API Controls for URL Block & Wallpaper ---
+@app.route('/api/admin/update-settings', methods=['POST'])
+def update_admin_settings():
+    if not session.get('logged_in'):
+        return jsonify({'status': 'error', 'message': 'Unauthorized'}), 401
+
+    data = request.json or {}
+    config = SystemConfig.query.first()
+    if not config:
+        config = SystemConfig()
+        db.session.add(config)
+
+    if "blocked_domains" in data:
+        config.blocked_domains = data.get("blocked_domains", "")
+    if "wallpaper_url" in data:
+        config.wallpaper_url = data.get("wallpaper_url", "")
+
+    db.session.commit()
+    return jsonify({'status': 'success', 'message': 'Settings updated successfully!'})
+
+# --- Heartbeat API Response with Controls ---
 @app.route('/api/agent/heartbeat', methods=['POST'])
 def agent_heartbeat():
     data = request.json or {}
@@ -174,7 +210,23 @@ def agent_heartbeat():
         device.last_screenshot_sync = now_str
 
     db.session.commit()
-    return jsonify({"status": "success", "server_time_ist": now_str})
+
+    # Get Active Server Settings for Agent Response
+    config = SystemConfig.query.first()
+    blocked_list = []
+    wallpaper_target = ""
+
+    if config:
+        if config.blocked_domains:
+            blocked_list = [d.strip() for d in config.blocked_domains.split(",") if d.strip()]
+        wallpaper_target = config.wallpaper_url or ""
+
+    return jsonify({
+        "status": "success", 
+        "server_time_ist": now_str,
+        "blocked_domains": blocked_list,
+        "wallpaper_url": wallpaper_target
+    })
 
 if __name__ == "__main__":
     app.run(host="0.0.0.0", port=5000)
