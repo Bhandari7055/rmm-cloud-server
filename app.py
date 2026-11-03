@@ -3,8 +3,7 @@ from flask_sqlalchemy import SQLAlchemy
 from datetime import datetime
 import pytz
 import random
-import smtplib
-from email.mime.text import MIMEText
+import requests
 
 app = Flask(__name__)
 app.secret_key = "galaxy_it_monitor_secret_key"
@@ -14,15 +13,11 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 db = SQLAlchemy(app)
 IST = pytz.timezone('Asia/Kolkata')
 
-# ----------------- GMAIL CONFIGURATION -----------------
 GMAIL_USER = "Bhandaribharat216@gmail.com"
-GMAIL_APP_PASSWORD = "otonfckjgfpndtfs"
-# --------------------------------------------------------
 
 def get_ist_now():
     return datetime.now(IST).strftime("%Y-%m-%d %I:%M:%S %p")
 
-# --- Database Models ---
 class SystemDevice(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     device_id = db.Column(db.String(100), unique=True, nullable=False)
@@ -47,7 +42,6 @@ with app.app_context():
     except Exception as e:
         print(f"DB Init Exception: {e}")
 
-# --- Routes ---
 @app.route('/')
 def home():
     if not session.get('logged_in'):
@@ -97,29 +91,29 @@ def send_otp():
         otp = str(random.randint(100000, 999999))
         session['reset_otp'] = otp
         
-        # Render Log me OTP print hoga
-        print(f"\n==========================================")
-        print(f"[GMAIL OTP FOR {GMAIL_USER}]: {otp}")
-        print(f"==========================================\n")
+        # Free HTTP API Mailer (Render Block Free)
+        url = "https://api.brevo.com/v3/smtp/email"
+        headers = {
+            "accept": "application/json",
+            "content-type": "application/json",
+            "api-key": "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"
+        }
+        payload = {
+            "sender": {"name": "Galaxy IT Monitor Pro", "email": "Bhandaribharat216@gmail.com"},
+            "to": [{"email": GMAIL_USER, "name": "Admin"}],
+            "subject": "Galaxy RMM Admin Password Reset OTP",
+            "htmlContent": f"<h3>Galaxy IT Monitor Pro</h3><p>Aapka Password Reset OTP hai: <b>{otp}</b></p><p>Is OTP ko kisi ke sath share na karein.</p>"
+        }
         
-        try:
-            msg = MIMEText(f"Galaxy IT Monitor Pro OTP: {otp}")
-            msg['Subject'] = 'Galaxy RMM Admin Password Reset OTP'
-            msg['From'] = GMAIL_USER
-            msg['To'] = GMAIL_USER
-            
-            server = smtplib.SMTP('smtp.gmail.com', 587, timeout=3)
-            server.starttls()
-            server.login(GMAIL_USER, GMAIL_APP_PASSWORD)
-            server.sendmail(GMAIL_USER, [GMAIL_USER], msg.as_string())
-            server.quit()
-            return jsonify({'status': 'success', 'message': f'OTP sent to {GMAIL_USER}'})
-        except Exception:
-            # Fallback agar Render SMTP block kare
-            return jsonify({'status': 'success', 'message': f'OTP Generated! (Check Render Logs for OTP code)'})
+        response = requests.post(url, json=payload, headers=headers, timeout=10)
+        
+        if response.status_code in [200, 201]:
+            return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}'})
+        else:
+            return jsonify({'status': 'error', 'message': f'Email API Error: {response.text}'}), 200
 
     except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Error: {str(e)}'}), 200
+        return jsonify({'status': 'error', 'message': f'Send Failed: {str(e)}'}), 200
 
 @app.route('/verify-otp-reset-password', methods=['POST'])
 def verify_otp_reset():
