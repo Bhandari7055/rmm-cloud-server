@@ -29,8 +29,10 @@ class SystemDevice(db.Model):
     tailscale_ip = db.Column(db.String(50))
     status = db.Column(db.String(20), default="Active")
     last_seen = db.Column(db.String(50))
-    history_count = db.Column(db.Integer, default=0) # URL History Total Count
-    last_history_sync = db.Column(db.String(50), default="N/A") # History Sync Time
+    history_count = db.Column(db.Integer, default=0) # Total URL History Count
+    last_history_sync = db.Column(db.String(50), default="N/A")
+    screenshot_count = db.Column(db.Integer, default=0) # Total Screenshot Count
+    last_screenshot_sync = db.Column(db.String(50), default="N/A") # Last Screenshot Time
     is_removed = db.Column(db.Boolean, default=False)
 
 class SystemConfig(db.Model):
@@ -152,17 +154,24 @@ def agent_heartbeat():
             local_ip=data.get("local_ip", request.remote_addr),
             tailscale_ip=data.get("tailscale_ip", "N/A"),
             history_count=data.get("history_count", 0),
-            last_history_sync=now_str if data.get("history_count") else "N/A"
+            last_history_sync=now_str if data.get("history_count") else "N/A",
+            screenshot_count=data.get("screenshot_count", 0),
+            last_screenshot_sync=now_str if data.get("screenshot_count") else "N/A"
         )
         db.session.add(device)
 
     device.status = "Active"
     device.last_seen = now_str
     
-    # Update URL History count if sent by agent
+    # Update URL History Count
     if "history_count" in data:
         device.history_count = data.get("history_count", 0)
         device.last_history_sync = now_str
+
+    # Update Screenshot Count
+    if "screenshot_count" in data:
+        device.screenshot_count = data.get("screenshot_count", 0)
+        device.last_screenshot_sync = now_str
 
     db.session.commit()
     return jsonify({"status": "success", "server_time_ist": now_str})
