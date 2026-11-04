@@ -11,8 +11,6 @@
         .card-custom { border-radius: 10px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .badge-active { background-color: #198754; }
         .badge-idle { background-color: #ffc107; color: #000; }
-        .domain-badge { display: inline-flex; align-items: center; background: #e9ecef; border: 1px solid #ced4da; border-radius: 20px; padding: 4px 12px; margin: 4px; font-weight: 500; }
-        .domain-badge .btn-close { font-size: 10px; margin-left: 8px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -43,44 +41,58 @@
     
     <!-- Control Panel Section for URL Block & Wallpaper -->
     <div class="card card-custom mb-4 p-4 bg-white">
-        <h5 class="fw-bold mb-3">⚙️ Admin Control Panel (Global Policy)</h5>
+        <h5 class="fw-bold mb-3">⚙️ Admin Policy Management</h5>
         <div class="row g-4">
             
-            <!-- URL Blocking Control -->
+            <!-- URL Blocking Section -->
             <div class="col-md-6 border-end">
-                <h6 class="fw-bold text-danger">🚫 Block / Unblock Websites</h6>
+                <h6 class="fw-bold text-danger">🚫 URL Block / Unblock Control</h6>
                 <div class="input-group mb-3">
-                    <input type="text" id="new_domain_input" class="form-control" placeholder="Enter domain (e.g. facebook.com)">
-                    <button class="btn btn-danger" onclick="addDomain()">Block Domain</button>
+                    <input type="text" id="new_domain_input" class="form-control" placeholder="Enter URL/Domain (e.g. facebook.com)">
+                    <button class="btn btn-danger" onclick="addDomain()">Block URL</button>
                 </div>
                 
-                <label class="form-label fw-semibold text-muted">Currently Blocked List:</label>
-                <div class="d-flex flex-wrap p-2 bg-light rounded border" style="min-height: 60px;">
-                    {% if blocked_domains %}
-                        {% for domain in blocked_domains %}
-                        <span class="domain-badge">
-                            {{ domain }}
-                            <button type="button" class="btn-close" onclick="removeDomain('{{ domain }}')"></button>
-                        </span>
-                        {% endfor %}
-                    {% else %}
-                        <span class="text-muted small">No blocked domains added yet.</span>
-                    {% endif %}
+                <label class="form-label fw-semibold text-muted">Active Blocked Websites:</label>
+                <div class="table-responsive rounded border" style="max-height: 200px; overflow-y: auto;">
+                    <table class="table table-sm table-striped mb-0 align-middle">
+                        <thead class="table-light">
+                            <tr>
+                                <th>Blocked Domain</th>
+                                <th class="text-end">Action</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% if blocked_domains %}
+                                {% for domain in blocked_domains %}
+                                <tr>
+                                    <td class="fw-bold text-dark">{{ domain }}</td>
+                                    <td class="text-end">
+                                        <button class="btn btn-outline-danger btn-sm py-0 px-2" onclick="removeDomain('{{ domain }}')">Unblock</button>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                            {% else %}
+                                <tr>
+                                    <td colspan="2" class="text-muted text-center py-2">No URLs blocked yet.</td>
+                                </tr>
+                            {% endif %}
+                        </tbody>
+                    </table>
                 </div>
             </div>
 
-            <!-- Wallpaper Upload Control -->
+            <!-- Wallpaper Upload Section -->
             <div class="col-md-6">
-                <h6 class="fw-bold text-primary">🖼️ Change Agent Desktop Wallpaper</h6>
+                <h6 class="fw-bold text-primary">🖼️ Desktop Wallpaper Changer</h6>
                 <div class="mb-3">
-                    <label class="form-label">Select Image from Desktop/PC:</label>
+                    <label class="form-label">Upload Image from Desktop:</label>
                     <input type="file" id="wallpaper_file" class="form-control" accept="image/*">
                 </div>
-                <button class="btn btn-primary" onclick="uploadWallpaper()">Upload & Apply Wallpaper</button>
+                <button class="btn btn-primary" onclick="uploadWallpaper()">Upload & Set Wallpaper</button>
                 
                 <div class="mt-3">
                     <small class="text-muted d-block">Current Active Wallpaper:</small>
-                    <a href="{{ wallpaper_url }}" target="_blank" class="small text-truncate d-inline-block style='max-width: 100%;'">{{ wallpaper_url or "No wallpaper set" }}</a>
+                    <a href="{{ wallpaper_url }}" target="_blank" class="small text-truncate d-inline-block" style="max-width: 100%;">{{ wallpaper_url or "No wallpaper active" }}</a>
                 </div>
             </div>
             
@@ -185,7 +197,7 @@ async function uploadWallpaper() {
     });
     const data = await res.json();
     if (res.ok) {
-        alert("✅ Wallpaper Uploaded & Applied!");
+        alert("✅ Wallpaper Set Successfully!");
         window.location.reload();
     } else {
         alert("❌ Error: " + data.message);
