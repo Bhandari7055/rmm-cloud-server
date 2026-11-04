@@ -32,7 +32,7 @@ class SystemDevice(db.Model):
     username = db.Column(db.String(100), nullable=False)
     local_ip = db.Column(db.String(50))
     tailscale_ip = db.Column(db.String(50))
-    monitor_model = db.Column(db.String(150), default="Unknown Monitor")  # Monitor Model Storage
+    monitor_model = db.Column(db.String(150), default="Unknown Monitor")
     status = db.Column(db.String(20), default="Active")
     last_seen = db.Column(db.String(50))
     history_count = db.Column(db.Integer, default=0)
@@ -44,22 +44,26 @@ class SystemDevice(db.Model):
 class SystemConfig(db.Model):
     id = db.Column(db.Integer, primary_key=True)
     admin_password = db.Column(db.String(100), default="Bhandari")
-    blocked_domains = db.Column(db.Text, default="facebook.com,instagram.com,twitter.com")
+    blocked_domains = db.Column(db.Text, default="facebook.com,instagram.com,twitter.com,youtube.com")
     wallpaper_url = db.Column(db.Text, default="")
 
-with app.app_context():
+def init_db():
     try:
         db.create_all()
         config = SystemConfig.query.first()
         if not config:
-            db.session.add(SystemConfig(
+            config = SystemConfig(
                 admin_password="Bhandari",
-                blocked_domains="facebook.com,instagram.com,twitter.com",
+                blocked_domains="facebook.com,instagram.com,twitter.com,youtube.com",
                 wallpaper_url=""
-            ))
+            )
+            db.session.add(config)
             db.session.commit()
     except Exception as e:
         print(f"DB Init Exception: {e}")
+
+with app.app_context():
+    init_db()
 
 # --- Static File Serving ---
 @app.route('/static/wallpapers/<filename>')
@@ -79,7 +83,7 @@ def login():
         data = request.json or {}
         password = data.get('password')
         config = SystemConfig.query.first()
-        admin_pass = config.admin_password if config else "Bhandari"
+        admin_pass = config.admin_password if config and config.admin_password else "Bhandari"
 
         if password == admin_pass:
             session['logged_in'] = True
@@ -105,8 +109,12 @@ def dashboard():
         return redirect(url_for('login'))
     
     try:
-        devices = SystemDevice.query.filter_by(is_removed=False).all()
         config = SystemConfig.query.first()
+        if not config:
+            init_db()
+            config = SystemConfig.query.first()
+
+        devices = SystemDevice.query.filter_by(is_removed=False).all()
         
         raw_blocked = config.blocked_domains if (config and config.blocked_domains) else ""
         blocked_list = [d.strip() for d in raw_blocked.split(",") if d.strip()]
@@ -122,43 +130,6 @@ def dashboard():
     except Exception as e:
         return f"Dashboard Render Error: {str(e)}", 500
 
-@app.route('/send-otp', methods=['POST'])
-def send_otp():
-    try:
-        otp = str(random.randint(100000, 999999))
-        session['reset_otp'] = otp
-        formspree_url = "https://formspree.io/f/xwllwdwo"
-        payload = {
-            "_subject": "Galaxy RMM Admin Password Reset OTP",
-            "email": GMAIL_USER,
-            "message": f"Galaxy IT Monitor Pro - Password Reset OTP: {otp}\n\nIs OTP ko kisi ke saath share na karein."
-        }
-        res = requests.post(formspree_url, data=payload, timeout=10)
-        if res.status_code in [200, 202]:
-            return jsonify({'status': 'success', 'message': f'OTP successfully sent to {GMAIL_USER}!'})
-        else:
-            return jsonify({'status': 'error', 'message': 'Formspree Delivery Failed'}), 200
-    except Exception as e:
-        return jsonify({'status': 'error', 'message': f'Send Failed: {str(e)}'}), 200
-
-@app.route('/verify-otp-reset-password', methods=['POST'])
-def verify_otp_reset():
-    data = request.json or {}
-    user_otp = data.get('otp')
-    new_password = data.get('new_password')
-    
-    saved_otp = session.get('reset_otp')
-    if not saved_otp or user_otp != saved_otp:
-        return jsonify({'status': 'error', 'message': 'Invalid or expired OTP'}), 400
-        
-    config = SystemConfig.query.first()
-    if config:
-        config.admin_password = new_password
-        db.session.commit()
-        session.pop('reset_otp', None)
-        return jsonify({'status': 'success', 'message': 'Password changed successfully!'})
-    return jsonify({'status': 'error', 'message': 'System error'}), 500
-
 # --- Admin APIs for Domain Blocking & Wallpaper Upload ---
 @app.route('/api/admin/add-blocked-domain', methods=['POST'])
 def add_blocked_domain():
@@ -170,6 +141,10 @@ def add_blocked_domain():
         return jsonify({'status': 'error', 'message': 'Domain empty'}), 400
 
     config = SystemConfig.query.first()
+    if not config:
+        init_db()
+        config = SystemConfig.query.first()
+
     existing = [d.strip() for d in config.blocked_domains.split(",") if d.strip()] if config.blocked_domains else []
     if domain not in existing:
         existing.append(domain)
@@ -186,11 +161,12 @@ def remove_blocked_domain():
     domain = data.get("domain", "").strip().lower()
 
     config = SystemConfig.query.first()
-    existing = [d.strip() for d in config.blocked_domains.split(",") if d.strip()] if config.blocked_domains else []
-    if domain in existing:
-        existing.remove(domain)
-        config.blocked_domains = ",".join(existing)
-        db.session.commit()
+    if config and config.blocked_domains:
+        existing = [d.strip() for d in config.blocked_domains.split(",") if d.strip()]
+        if domain in existing:
+            existing.remove(domain)
+            config.blocked_domains = ",".join(existing)
+            db.session.commit()
 
     return jsonify({'status': 'success', 'message': f'Domain {domain} unblocked!'})
 
@@ -213,8 +189,9 @@ def upload_wallpaper():
 
         full_url = f"{request.host_url.rstrip('/')}/static/wallpapers/{filename}"
         config = SystemConfig.query.first()
-        config.wallpaper_url = full_url
-        db.session.commit()
+        if config:
+            config.wallpaper_url = full_url
+            db.session.commit()
 
         return jsonify({'status': 'success', 'wallpaper_url': full_url})
 
