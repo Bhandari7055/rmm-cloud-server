@@ -11,6 +11,8 @@
         .card-custom { border-radius: 10px; border: none; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .badge-active { background-color: #198754; }
         .badge-idle { background-color: #ffc107; color: #000; }
+        .domain-badge { display: inline-flex; align-items: center; background: #e9ecef; border: 1px solid #ced4da; border-radius: 20px; padding: 4px 12px; margin: 4px; font-weight: 500; }
+        .domain-badge .btn-close { font-size: 10px; margin-left: 8px; cursor: pointer; }
     </style>
 </head>
 <body>
@@ -25,9 +27,6 @@
             <input type="password" id="password" class="form-control" placeholder="Enter Password">
         </div>
         <button onclick="login()" class="btn btn-primary w-100">Login</button>
-        <div class="text-center mt-3">
-            <a href="#" onclick="showForgotPasswordModal()" class="text-decoration-none">Forgot / Reset Password?</a>
-        </div>
     </div>
 </div>
 
@@ -36,7 +35,6 @@
 <nav class="navbar navbar-custom px-4 py-3 d-flex justify-content-between align-items-center">
     <h4 class="m-0">🌌 Galaxy IT Monitor Pro</h4>
     <div>
-        <button class="btn btn-warning btn-sm me-2" onclick="showChangePassModal()">🔑 Change Password</button>
         <a href="/logout" class="btn btn-danger btn-sm">Logout</a>
     </div>
 </nav>
@@ -46,20 +44,46 @@
     <!-- Control Panel Section for URL Block & Wallpaper -->
     <div class="card card-custom mb-4 p-4 bg-white">
         <h5 class="fw-bold mb-3">⚙️ Admin Control Panel (Global Policy)</h5>
-        <div class="row g-3">
-            <div class="col-md-6">
-                <label class="form-label fw-semibold">Blocked Domains (Comma Separated)</label>
-                <input type="text" id="blocked_domains_input" class="form-control" value="{{ blocked_domains }}" placeholder="e.g. facebook, instagram, twitter">
-                <small class="text-muted">In websites ko agent system par open nahi hone dega.</small>
+        <div class="row g-4">
+            
+            <!-- URL Blocking Control -->
+            <div class="col-md-6 border-end">
+                <h6 class="fw-bold text-danger">🚫 Block / Unblock Websites</h6>
+                <div class="input-group mb-3">
+                    <input type="text" id="new_domain_input" class="form-control" placeholder="Enter domain (e.g. facebook.com)">
+                    <button class="btn btn-danger" onclick="addDomain()">Block Domain</button>
+                </div>
+                
+                <label class="form-label fw-semibold text-muted">Currently Blocked List:</label>
+                <div class="d-flex flex-wrap p-2 bg-light rounded border" style="min-height: 60px;">
+                    {% if blocked_domains %}
+                        {% for domain in blocked_domains %}
+                        <span class="domain-badge">
+                            {{ domain }}
+                            <button type="button" class="btn-close" onclick="removeDomain('{{ domain }}')"></button>
+                        </span>
+                        {% endfor %}
+                    {% else %}
+                        <span class="text-muted small">No blocked domains added yet.</span>
+                    {% endif %}
+                </div>
             </div>
+
+            <!-- Wallpaper Upload Control -->
             <div class="col-md-6">
-                <label class="form-label fw-semibold">Desktop Wallpaper Image URL</label>
-                <input type="text" id="wallpaper_url_input" class="form-control" value="{{ wallpaper_url }}" placeholder="https://example.com/wallpaper.jpg">
-                <small class="text-muted">Agent devices par desktop wallpaper dynamically change ho jayega.</small>
+                <h6 class="fw-bold text-primary">🖼️ Change Agent Desktop Wallpaper</h6>
+                <div class="mb-3">
+                    <label class="form-label">Select Image from Desktop/PC:</label>
+                    <input type="file" id="wallpaper_file" class="form-control" accept="image/*">
+                </div>
+                <button class="btn btn-primary" onclick="uploadWallpaper()">Upload & Apply Wallpaper</button>
+                
+                <div class="mt-3">
+                    <small class="text-muted d-block">Current Active Wallpaper:</small>
+                    <a href="{{ wallpaper_url }}" target="_blank" class="small text-truncate d-inline-block style='max-width: 100%;'">{{ wallpaper_url or "No wallpaper set" }}</a>
+                </div>
             </div>
-        </div>
-        <div class="mt-3 text-end">
-            <button class="btn btn-success" onclick="saveAdminSettings()">💾 Save Policy Settings</button>
+            
         </div>
     </div>
 
@@ -114,7 +138,6 @@
 
 {% endif %}
 
-<!-- Script Section -->
 <script>
 async function login() {
     const password = document.getElementById('password').value;
@@ -123,28 +146,49 @@ async function login() {
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ password })
     });
-    const data = await res.json();
-    if (res.ok) {
-        window.location.href = '/dashboard';
-    } else {
-        document.getElementById('login-alert').innerHTML = `<div class="alert alert-danger">${data.message}</div>`;
-    }
+    if (res.ok) { window.location.href = '/dashboard'; } 
+    else { alert("Invalid password"); }
 }
 
-async function saveAdminSettings() {
-    const blocked_domains = document.getElementById('blocked_domains_input').value;
-    const wallpaper_url = document.getElementById('wallpaper_url_input').value;
-
-    const res = await fetch('/api/admin/update-settings', {
+async function addDomain() {
+    const domain = document.getElementById('new_domain_input').value.trim();
+    if (!domain) return alert("Please enter a domain name!");
+    
+    const res = await fetch('/api/admin/add-blocked-domain', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ blocked_domains, wallpaper_url })
+        body: JSON.stringify({ domain })
+    });
+    if (res.ok) { window.location.reload(); }
+}
+
+async function removeDomain(domain) {
+    if(!confirm(`Unblock ${domain}?`)) return;
+    const res = await fetch('/api/admin/remove-blocked-domain', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ domain })
+    });
+    if (res.ok) { window.location.reload(); }
+}
+
+async function uploadWallpaper() {
+    const fileInput = document.getElementById('wallpaper_file');
+    if (fileInput.files.length === 0) return alert("Please select an image file first!");
+    
+    const formData = new FormData();
+    formData.append('file', fileInput.files[0]);
+
+    const res = await fetch('/api/admin/upload-wallpaper', {
+        method: 'POST',
+        body: formData
     });
     const data = await res.json();
     if (res.ok) {
-        alert("✅ Policy Settings Saved Successfully!");
+        alert("✅ Wallpaper Uploaded & Applied!");
+        window.location.reload();
     } else {
-        alert("❌ Error saving settings: " + data.message);
+        alert("❌ Error: " + data.message);
     }
 }
 </script>
