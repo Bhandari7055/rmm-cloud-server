@@ -113,6 +113,7 @@
                         <th>Device ID</th>
                         <th>Hostname</th>
                         <th>User</th>
+                        <th>Monitor Details</th>
                         <th>Local IP</th>
                         <th>Tailscale IP</th>
                         <th>URL History</th>
@@ -128,6 +129,7 @@
                         <td class="fw-bold text-primary">{{ device.device_id }}</td>
                         <td>{{ device.hostname }}</td>
                         <td>{{ device.username }}</td>
+                        <td><span class="badge bg-dark text-white">🖥️ {{ device.monitor_model or "Detecting..." }}</span></td>
                         <td>{{ device.local_ip }}</td>
                         <td>{{ device.tailscale_ip }}</td>
                         <td><span class="badge bg-info text-dark">{{ device.history_count }} URLs</span></td>
